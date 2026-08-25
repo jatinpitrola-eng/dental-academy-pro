@@ -29,6 +29,8 @@ export type AdminUser = {
   name: string | null;
 };
 
+export type TabRole = "student" | "admin" | null;
+
 interface AppState {
   view: View;
   setView: (v: View) => void;
@@ -49,9 +51,28 @@ interface AppState {
   pendingRequestId: string | null;
   setPendingRequestId: (id: string | null) => void;
 
-  // portal visibility (the admin portal is hidden; revealed via ?portal=1)
-  portalMode: boolean;
-  setPortalMode: (b: boolean) => void;
+  // Per-tab role (stored in sessionStorage so admin tab + student tab in the
+  // same browser stay isolated even though auth cookies are shared).
+  tabRole: TabRole;
+  setTabRole: (r: TabRole) => void;
+
+  // Admin access modal (triggered by 5 clicks on the logo)
+  adminAccessOpen: boolean;
+  setAdminAccessOpen: (b: boolean) => void;
+}
+
+// --- sessionStorage helpers (per-tab, NOT shared across tabs) -------------
+const TAB_ROLE_KEY = "da_tab_role";
+
+export function getTabRole(): TabRole {
+  if (typeof window === "undefined") return null;
+  return (sessionStorage.getItem(TAB_ROLE_KEY) as TabRole) || null;
+}
+
+export function setTabRoleStorage(role: TabRole) {
+  if (typeof window === "undefined") return;
+  if (role) sessionStorage.setItem(TAB_ROLE_KEY, role);
+  else sessionStorage.removeItem(TAB_ROLE_KEY);
 }
 
 export const useApp = create<AppState>()(
@@ -74,13 +95,21 @@ export const useApp = create<AppState>()(
       pendingRequestId: null,
       setPendingRequestId: (id) => set({ pendingRequestId: id }),
 
-      portalMode: false,
-      setPortalMode: (b) => set({ portalMode: b }),
+      tabRole: null,
+      setTabRole: (r) => {
+        setTabRoleStorage(r);
+        set({ tabRole: r });
+      },
+
+      adminAccessOpen: false,
+      setAdminAccessOpen: (b) => set({ adminAccessOpen: b }),
     }),
     {
       name: "dental-academy-app",
       // Rehydrate manually after mount to avoid SSR/CSR hydration mismatches.
       skipHydration: true,
+      // Only persist the OTP flow + course/video context. Role is in
+      // sessionStorage (per-tab), student/admin sessions are in httpOnly cookies.
       partialize: (s) => ({
         pendingRequestId: s.pendingRequestId,
         activeCourseId: s.activeCourseId,

@@ -40,6 +40,7 @@ export function StudentDashboard() {
   const student = useApp((s) => s.student)!;
   const setView = useApp((s) => s.setView);
   const setStudent = useApp((s) => s.setStudent);
+  const setTabRole = useApp((s) => s.setTabRole);
   const setActiveCourseId = useApp((s) => s.setActiveCourseId);
   const [courses, setCourses] = useState<CourseItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -55,13 +56,18 @@ export function StudentDashboard() {
     }
   };
 
+  // Live polling: when the admin grants a course, the student sees it appear
+  // without needing to refresh. Poll every 4 seconds while on this tab.
   useEffect(() => {
     load();
+    const t = setInterval(load, 4000);
+    return () => clearInterval(t);
   }, []);
 
   const logout = async () => {
     await api("/api/auth/logout", { method: "POST" }).catch(() => {});
     setStudent(null);
+    setTabRole(null);
     setView("landing");
   };
 

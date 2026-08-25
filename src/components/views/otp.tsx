@@ -27,6 +27,7 @@ export function OtpView() {
   const setView = useApp((s) => s.setView);
   const requestId = useApp((s) => s.pendingRequestId);
   const setStudent = useApp((s) => s.setStudent);
+  const setTabRole = useApp((s) => s.setTabRole);
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -95,6 +96,7 @@ export function OtpView() {
       const s = await api<{ user: unknown }>("/api/auth/session");
       if (s.user) {
         setStudent(s.user as never);
+        setTabRole("student"); // lock this tab to student
         setView("student-dashboard");
       }
     } catch (err) {

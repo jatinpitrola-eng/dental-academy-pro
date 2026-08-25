@@ -124,10 +124,15 @@ export async function revokeAdminSession(req: NextRequest): Promise<void> {
 }
 
 export async function loginAdmin(
-  username: string,
+  identifier: string,
   password: string,
 ): Promise<{ id: string; username: string; name: string | null } | null> {
-  const admin = await db.admin.findUnique({ where: { username } });
+  // Allow login by either email or username.
+  const admin = await db.admin.findFirst({
+    where: {
+      OR: [{ email: identifier }, { username: identifier }],
+    },
+  });
   if (!admin) return null;
   if (!verifyPassword(password, admin.passwordHash)) return null;
   return { id: admin.id, username: admin.username, name: admin.name };

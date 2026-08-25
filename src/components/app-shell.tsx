@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { useApp } from "@/lib/store";
+import { useApp, getTabRole, setTabRoleStorage } from "@/lib/store";
 import { api } from "@/lib/api";
 import { SecurityGuard } from "./security-guard";
 import { LandingView } from "./views/landing";
@@ -11,7 +11,6 @@ import { OtpView } from "./views/otp";
 import { StudentDashboard } from "./views/student-dashboard";
 import { StudentCourse } from "./views/student-course";
 import { StudentVideo } from "./views/student-video";
-import { AdminPortalLogin } from "./views/admin-portal-login";
 import { AdminDashboard } from "./views/admin-dashboard";
 import { SiteFooter } from "./site-footer";
 
@@ -22,57 +21,91 @@ export function AppShell() {
   const setStudent = useApp((s) => s.setStudent);
   const setAdmin = useApp((s) => s.setAdmin);
   const setView = useApp((s) => s.setView);
-  const portalMode = useApp((s) => s.portalMode);
-  const setPortalMode = useApp((s) => s.setPortalMode);
+  const tabRole = useApp((s) => s.tabRole);
+  const setTabRoleState = useApp((s) => s.setTabRole);
 
-  // Reveal the secret admin portal via ?portal=1 in the URL.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("portal") === "1") {
-      setPortalMode(true);
-    }
-  }, [setPortalMode]);
-
-  // Restore sessions on first load.
+  // On first load: read the per-tab role from sessionStorage, then verify the
+  // matching session cookie. This keeps an admin tab and a student tab isolated
+  // even within the same browser (cookies are shared, role is per-tab).
   useEffect(() => {
     // Manually rehydrate the persisted store (skipped during SSR).
     useApp.persist?.rehydrate?.();
+
+    const role = getTabRole();
+    setTabRoleState(role);
+
     (async () => {
+      // If this tab is locked to admin, ONLY check the admin session.
+      if (role === "admin") {
+        try {
+          const a = await api<{ admin: unknown }>("/api/admin/session");
+          if (a.admin) {
+            setAdmin(a.admin as never);
+            setView("admin-dashboard");
+            return;
+          }
+        } catch {
+          /* ignore */
+        }
+        // admin cookie gone → fall through to landing
+        setTabRoleState(null);
+        setView("landing");
+        return;
+      }
+
+      // If this tab is locked to student, ONLY check the student session.
+      if (role === "student") {
+        try {
+          const s = await api<{ user: unknown }>("/api/auth/session");
+          if (s.user && (s.user as { kind: string }).kind === "student") {
+            setStudent(s.user as never);
+            setView("student-dashboard");
+            return;
+          }
+        } catch {
+          /* ignore */
+        }
+        setTabRoleState(null);
+        setView("landing");
+        return;
+      }
+
+      // No role set yet — this is a fresh tab. If an admin cookie exists from a
+      // previous session, auto-enter admin only if there's no student cookie
+      // (prefer student role for public-facing tabs). Otherwise just show
+      // landing so the user picks what to do.
+      let hasAdmin = false;
+      let hasStudent = false;
       try {
         const a = await api<{ admin: unknown }>("/api/admin/session");
-        if (a.admin) {
-          setAdmin(a.admin as never);
-          setView("admin-dashboard");
-          return;
-        }
+        hasAdmin = !!a.admin;
       } catch {
         /* ignore */
       }
       try {
         const s = await api<{ user: unknown }>("/api/auth/session");
-        if (s.user && (s.user as { kind: string }).kind === "student") {
-          setStudent(s.user as never);
-          setView("student-dashboard");
-        }
+        hasStudent = !!s.user;
       } catch {
         /* ignore */
       }
+      if (hasStudent && !hasAdmin) {
+        // student-only — resume student
+        const s = await api<{ user: unknown }>("/api/auth/session");
+        setStudent(s.user as never);
+        setTabRoleState("student");
+        setView("student-dashboard");
+      } else if (hasAdmin && !hasStudent) {
+        // admin-only — resume admin
+        const a = await api<{ admin: unknown }>("/api/admin/session");
+        setAdmin(a.admin as never);
+        setTabRoleState("admin");
+        setView("admin-dashboard");
+      }
+      // If both or neither → stay on landing (user chooses explicitly).
     })();
-  }, [setStudent, setAdmin, setView]);
+  }, [setStudent, setAdmin, setView, setTabRoleState]);
 
-  // If portalMode is active and there's no admin session, force the portal
-  // login view (unless the user is already an admin).
-  useEffect(() => {
-    if (portalMode && !admin && view !== "admin-portal-login") {
-      setView("admin-portal-login");
-    }
-  }, [portalMode, admin, view, setView]);
-
-  // Decide what to render. Student/admin areas require a session; otherwise we
-  // bounce back to a sensible public view.
   const renderView = () => {
-    if (view === "admin-portal-login") return <AdminPortalLogin />;
     if (view === "admin-dashboard" && admin) return <AdminDashboard />;
     if (view === "student-dashboard" && student) return <StudentDashboard />;
     if (view === "student-course" && student) return <StudentCourse />;
@@ -83,8 +116,7 @@ export function AppShell() {
     return <LandingView />;
   };
 
-  const isStandaloneView =
-    view === "admin-dashboard" || view === "admin-portal-login";
+  const isStandaloneView = view === "admin-dashboard";
 
   return (
     <div className="app-ambient flex min-h-screen flex-col">

@@ -70,6 +70,7 @@ export function AdminDashboard() {
   const admin = useApp((s) => s.admin)!;
   const setAdmin = useApp((s) => s.setAdmin);
   const setView = useApp((s) => s.setView);
+  const setTabRole = useApp((s) => s.setTabRole);
   const [tab, setTab] = useState<Tab>("overview");
   const [notifPerm, setNotifPerm] = useState<boolean | null>(null);
 
@@ -84,6 +85,7 @@ export function AdminDashboard() {
   const logout = async () => {
     await api("/api/admin/logout", { method: "POST" }).catch(() => {});
     setAdmin(null);
+    setTabRole(null);
     setView("landing");
   };
 
@@ -357,13 +359,21 @@ function OtpTab() {
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState<string | null>(null);
   const [lastSeenCount, setLastSeenCount] = useState(0);
+  const [courses, setCourses] = useState<{ id: string; title: string; color: string | null }[]>([]);
+  const [approving, setApproving] = useState<OtpReq | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const res = await api<{ requests: OtpReq[] }>("/api/admin/otp?filter=all");
-      setRequests(res.requests);
+      const [otpRes, courseRes] = await Promise.all([
+        api<{ requests: OtpReq[] }>("/api/admin/otp?filter=all"),
+        api<{ courses: { id: string; title: string; color: string | null }[] }>(
+          "/api/admin/courses",
+        ),
+      ]);
+      setRequests(otpRes.requests);
+      setCourses(courseRes.courses);
       // Play a chime when new pending requests appear.
-      const pendingCount = res.requests.filter(
+      const pendingCount = otpRes.requests.filter(
         (r) => r.status === "pending",
       ).length;
       if (pendingCount > lastSeenCount && lastSeenCount !== -1) {
@@ -384,16 +394,12 @@ function OtpTab() {
     return () => clearInterval(t);
   }, [load]);
 
-  const act = async (id: string, action: "approve" | "deny") => {
+  const deny = async (id: string) => {
     try {
-      const res = await api<{ code?: string }>(`/api/admin/otp`, {
+      await api(`/api/admin/otp`, {
         method: "POST",
-        body: JSON.stringify({ requestId: id, action }),
+        body: JSON.stringify({ requestId: id, action: "deny" }),
       });
-      if (res.code) {
-        setRevealed((r) => ({ ...r, [id]: res.code as string }));
-        playNotificationSound();
-      }
       load();
     } catch (e) {
       alert((e as Error).message);
@@ -486,7 +492,7 @@ function OtpTab() {
                     <Button
                       size="sm"
                       className="flex-1 gap-1.5"
-                      onClick={() => act(r.id, "approve")}
+                      onClick={() => setApproving(r)}
                     >
                       <CheckCircle2 className="h-4 w-4" /> Approve
                     </Button>
@@ -494,7 +500,7 @@ function OtpTab() {
                       size="sm"
                       variant="outline"
                       className="gap-1.5"
-                      onClick={() => act(r.id, "deny")}
+                      onClick={() => deny(r.id)}
                     >
                       <XCircle className="h-4 w-4" /> Deny
                     </Button>
@@ -504,6 +510,22 @@ function OtpTab() {
             </Card>
           ))}
         </div>
+      )}
+
+      {approving && (
+        <ApproveWithCourseDialog
+          req={approving}
+          courses={courses}
+          onClose={() => setApproving(null)}
+          onDone={(code) => {
+            if (code) {
+              setRevealed((r) => ({ ...r, [approving.id]: code }));
+              playNotificationSound();
+            }
+            setApproving(null);
+            load();
+          }}
+        />
       )}
 
       {recent.length > 0 && (
@@ -763,6 +785,179 @@ function StudentsTab() {
         />
       )}
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+// Approve-with-course dialog: the admin picks course(s) + duration when
+// approving a login. Grants are created server-side so the student sees them
+// the moment they verify the code.
+
+function ApproveWithCourseDialog({
+  req,
+  courses,
+  onClose,
+  onDone,
+}: {
+  req: OtpReq;
+  courses: { id: string; title: string; color: string | null }[];
+  onClose: () => void;
+  onDone: (code: string | null) => void;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [days, setDays] = useState("30");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const toggle = (id: string) => {
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const submit = async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await api<{ code: string }>("/api/admin/otp", {
+        method: "POST",
+        body: JSON.stringify({
+          requestId: req.id,
+          action: "approve",
+          courseIds: Array.from(selected),
+          days: Number(days),
+        }),
+      });
+      onDone(res.code);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const approveOnly = async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await api<{ code: string }>("/api/admin/otp", {
+        method: "POST",
+        body: JSON.stringify({ requestId: req.id, action: "approve" }),
+      });
+      onDone(res.code);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Approve login & grant access</DialogTitle>
+          <DialogDescription>
+            <span className="font-medium text-foreground">{req.student.name}</span>{" "}
+            — select course(s) and duration. When the student enters the code,
+            these courses unlock instantly. You can also approve without
+            granting.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div>
+            <Label className="mb-2 block">Select course(s) to grant</Label>
+            {courses.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No courses available. Create one first.
+              </p>
+            ) : (
+              <div className="grid gap-2">
+                {courses.map((c) => {
+                  const on = selected.has(c.id);
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => toggle(c.id)}
+                      className={cn(
+                        "flex items-center gap-3 rounded-xl border p-3 text-left transition",
+                        on
+                          ? "border-emerald-500 bg-emerald-500/5 ring-1 ring-emerald-500/30"
+                          : "border-border hover:bg-accent/40",
+                      )}
+                    >
+                      <div
+                        className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white"
+                        style={{ backgroundColor: c.color || "#10b981" }}
+                      >
+                        {on ? <Check className="h-4 w-4" /> : <GraduationCap className="h-4 w-4" />}
+                      </div>
+                      <span className="flex-1 text-sm font-medium">{c.title}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          {selected.size > 0 && (
+            <div className="space-y-2">
+              <Label>Duration (days)</Label>
+              <div className="flex flex-wrap gap-2">
+                {[7, 15, 30, 60, 90, 180, 365].map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setDays(String(d))}
+                    className={cn(
+                      "rounded-lg border px-3 py-1.5 text-sm transition",
+                      days === String(d)
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border hover:bg-accent",
+                    )}
+                  >
+                    {d}d
+                  </button>
+                ))}
+                <Input
+                  type="number"
+                  min={1}
+                  value={days}
+                  onChange={(e) => setDays(e.target.value)}
+                  className="w-24"
+                />
+              </div>
+            </div>
+          )}
+          {error && (
+            <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error}
+            </p>
+          )}
+        </div>
+        <DialogFooter className="flex-col gap-2 sm:flex-row">
+          <Button variant="outline" onClick={approveOnly} disabled={loading} className="gap-1.5">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+            Approve only
+          </Button>
+          <Button
+            onClick={submit}
+            disabled={loading || selected.size === 0}
+            className="gap-1.5"
+          >
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ShieldCheck className="h-4 w-4" />
+            )}
+            Approve & grant {selected.size > 0 ? `(${selected.size} course${selected.size > 1 ? "s" : ""}, ${days}d)` : ""}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

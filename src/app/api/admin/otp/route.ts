@@ -21,13 +21,17 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ requests });
 }
 
-// Approve a request -> generate a 6-digit code.
+// Approve a request -> generate a 6-digit code. Optionally grant course(s).
 export async function POST(req: NextRequest) {
   if (!(await requireAdmin(req)))
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const body = await req.json().catch(() => ({}));
   const requestId = String(body.requestId || "");
   const action = String(body.action || "approve");
+  const courseIds: string[] = Array.isArray(body.courseIds)
+    ? body.courseIds
+    : [];
+  const days = Number(body.days || 0);
   if (!requestId)
     return NextResponse.json(
       { error: "requestId is required." },
@@ -69,6 +73,45 @@ export async function POST(req: NextRequest) {
     where: { id: requestId },
     data: { status: "approved", code, expiresAt, resolvedAt: new Date() },
   });
+
+  // If the admin selected course(s) + duration, create grants immediately so
+  // the student sees them the moment they verify the code.
+  const granted: { courseId: string; courseTitle: string }[] = [];
+  if (courseIds.length > 0 && days > 0) {
+    const grantExpires = new Date();
+    grantExpires.setDate(grantExpires.getDate() + days);
+    for (const courseId of courseIds) {
+      const course = await db.course.findUnique({ where: { id: courseId } });
+      if (!course) continue;
+      await db.accessGrant.upsert({
+        where: { studentId_courseId: { studentId: otp.studentId, courseId } },
+        update: { expiresAt: grantExpires, revoked: false, grantedAt: new Date() },
+        create: { studentId: otp.studentId, courseId, expiresAt: grantExpires },
+      });
+      granted.push({ courseId, courseTitle: course.title });
+    }
+    // Also activate the student so they can log in immediately.
+    await db.student.update({
+      where: { id: otp.studentId },
+      data: { status: "active" },
+    });
+    await db.activityLog.create({
+      data: {
+        studentId: otp.studentId,
+        action: "access_change",
+        detail: `Granted ${days}-day access to ${granted.map((g) => g.courseTitle).join(", ")}`,
+      },
+    });
+    await db.notification.create({
+      data: {
+        studentId: otp.studentId,
+        type: "access_granted",
+        title: "Access granted",
+        message: `${otp.student.name} was granted ${days}-day access to ${granted.map((g) => g.courseTitle).join(", ")}.`,
+      },
+    });
+  }
+
   await db.notification.create({
     data: {
       studentId: otp.studentId,
@@ -77,5 +120,5 @@ export async function POST(req: NextRequest) {
       message: `Access code generated for ${otp.student.name}.`,
     },
   });
-  return NextResponse.json({ ok: true, status: "approved", code });
+  return NextResponse.json({ ok: true, status: "approved", code, granted });
 }

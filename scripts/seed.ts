@@ -5,14 +5,17 @@ async function main() {
   // Master admin (secret portal)
   const adminPassword = "Admin@Dental#2024";
   const secretKey = "dental-master-2024"; // portal access key (change in production)
+  const adminEmail = "owner@dentalacademy.com";
   const admin = await db.admin.upsert({
     where: { username: "master" },
     update: {
       passwordHash: hashPassword(adminPassword),
       secretKey,
+      email: adminEmail,
     },
     create: {
       username: "master",
+      email: adminEmail,
       passwordHash: hashPassword(adminPassword),
       secretKey,
       name: "Academy Owner",
@@ -135,6 +138,9 @@ async function main() {
   }
 
   // A demo student so the owner can test the full flow immediately.
+  // NOTE: the demo student starts with NO course access — the owner must
+  // approve a login and select course(s) during approval (or via the Students
+  // tab) before any course unlocks. This matches the real flow.
   const demo = await db.student.upsert({
     where: { email: "demo@student.com" },
     update: {},
@@ -143,30 +149,13 @@ async function main() {
       email: "demo@student.com",
       phone: "9876543210",
       passwordHash: hashPassword("student123"),
-      status: "active",
-    },
-  });
-
-  // Grant demo student access to course 1 for 30 days from now.
-  const expires = new Date();
-  expires.setDate(expires.getDate() + 30);
-  await db.accessGrant.upsert({
-    where: {
-      studentId_courseId: {
-        studentId: demo.id,
-        courseId: "course-seed-1",
-      },
-    },
-    update: { expiresAt: expires, revoked: false },
-    create: {
-      studentId: demo.id,
-      courseId: "course-seed-1",
-      expiresAt: expires,
+      status: "pending",
     },
   });
 
   console.log("✓ Sample courses, videos and a demo student created");
   console.log("  Demo student: demo@student.com / student123");
+  console.log("  (no courses granted — owner must approve + select course)");
 }
 
 main()

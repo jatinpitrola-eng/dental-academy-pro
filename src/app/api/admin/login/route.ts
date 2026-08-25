@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const secretKey = String(body.secretKey || "").trim();
-    const username = String(body.username || "").trim();
+    const email = String(body.email || body.username || "").trim();
     const password = String(body.password || "");
 
     // Verify the portal secret first.
@@ -21,10 +21,10 @@ export async function POST(req: NextRequest) {
         { status: 404 },
       );
 
-    const admin = await loginAdmin(username, password);
+    const admin = await loginAdmin(email, password);
     if (!admin)
       return NextResponse.json(
-        { error: "Invalid credentials." },
+        { error: "Invalid email or password." },
         { status: 401 },
       );
 

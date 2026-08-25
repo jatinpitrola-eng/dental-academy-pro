@@ -19,6 +19,7 @@ import { ArrowLeft, Loader2, LogIn, ShieldAlert } from "lucide-react";
 export function LoginView() {
   const setView = useApp((s) => s.setView);
   const setPendingRequestId = useApp((s) => s.setPendingRequestId);
+  const setTabRole = useApp((s) => s.setTabRole);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -36,6 +37,7 @@ export function LoginView() {
         body: JSON.stringify({ email, password }),
       });
       setPendingRequestId(res.requestId);
+      setTabRole("student"); // lock this tab to the student role
       setView("otp");
     } catch (err) {
       const e = err as Error & { data?: { disabled?: boolean } };
@@ -123,9 +125,8 @@ export function LoginView() {
             <div className="rounded-lg border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
               <span className="font-medium text-foreground">Tip:</span> Try the
               demo student — <code className="font-mono">demo@student.com</code>{" "}
-              / <code className="font-mono">student123</code>. Open the admin
-              portal at{" "}
-              <code className="font-mono">?portal=1</code> to approve the login.
+              / <code className="font-mono">student123</code>. The academy owner
+              can access the admin panel by clicking the logo 5 times.
             </div>
           </form>
         </CardContent>

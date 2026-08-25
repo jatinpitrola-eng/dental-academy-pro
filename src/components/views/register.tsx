@@ -18,6 +18,7 @@ import { ArrowLeft, Loader2, UserPlus } from "lucide-react";
 
 export function RegisterView() {
   const setView = useApp((s) => s.setView);
+  const setTabRole = useApp((s) => s.setTabRole);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -35,6 +36,7 @@ export function RegisterView() {
         method: "POST",
         body: JSON.stringify({ name, email, phone, password }),
       });
+      setTabRole("student"); // lock this tab to student
       setDone(true);
     } catch (err) {
       setError((err as Error).message);

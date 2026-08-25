@@ -13,6 +13,7 @@ datasource db {
 
 model Admin {
   id           String   @id @default(cuid())
+  email        String   @unique
   username     String   @unique
   passwordHash String
   secretKey    String   @unique // used to access the hidden admin portal
