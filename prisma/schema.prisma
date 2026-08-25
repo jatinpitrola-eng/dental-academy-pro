@@ -1,0 +1,168 @@
+// Prisma schema for Dental Academy PWA
+// Master admin (secret), students (device-bound, OTP-gated login),
+// courses/videos, time-limited access grants, security violation tracking.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Admin {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  secretKey    String   @unique // used to access the hidden admin portal
+  name         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Student {
+  id              String   @id @default(cuid())
+  name            String
+  email           String   @unique
+  phone           String?
+  passwordHash    String
+  // Device binding: only one device may hold an active session.
+  // We store a device fingerprint + an opaque device token issued at login.
+  activeDeviceId  String?  // the deviceId currently bound to this account
+  deviceToken     String?  // opaque token the bound device must present
+  deviceLabel     String?  // human label e.g. "Chrome on Android"
+  status          String   @default("active") // active | pending | disabled
+  disableReason   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  sessions        Session[]
+  grants          AccessGrant[]
+  otpRequests     OtpRequest[]
+  notifications   Notification[]
+  activityLogs    ActivityLog[]
+  violations      Violation[]
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  studentId    String
+  student      Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  deviceId     String
+  deviceToken  String
+  deviceLabel  String?
+  ip           String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+  revoked      Boolean  @default(false)
+
+  @@index([studentId])
+}
+
+model Course {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  thumbnail   String?
+  color       String?
+  published   Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  videos      Video[]
+  grants      AccessGrant[]
+}
+
+model Video {
+  id          String   @id @default(cuid())
+  courseId     String
+  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  // Source can be an external URL (CDN/S3) or a locally uploaded file path.
+  sourceType  String   @default("url") // url | upload
+  sourceUrl   String   // direct playable URL or /api/student/video/[id]/stream
+  duration    Int      @default(0) // seconds
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([courseId])
+}
+
+// Time-limited access: a student gets access to a course for N days.
+// When expiry passes, the videos are automatically locked for that student.
+model AccessGrant {
+  id         String   @id @default(cuid())
+  studentId  String
+  student    Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  courseId   String
+  course     Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  grantedAt  DateTime @default(now())
+  expiresAt  DateTime
+  revoked    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@unique([studentId, courseId])
+  @@index([studentId])
+}
+
+// Pending OTP login approvals. When a student tries to log in, we create a
+// request. The master admin sees it, approves it, and a 6-digit code is
+// generated. The admin shares the code out-of-band with the student.
+model OtpRequest {
+  id         String   @id @default(cuid())
+  studentId  String
+  student    Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  code       String?  // 6-digit code, set when admin approves
+  deviceId   String
+  deviceLabel String?
+  ip         String?
+  userAgent  String?
+  status     String   @default("pending") // pending | approved | denied | expired | consumed
+  createdAt  DateTime @default(now())
+  resolvedAt DateTime?
+  expiresAt  DateTime
+
+  @@index([studentId])
+}
+
+model Notification {
+  id         String   @id @default(cuid())
+  studentId  String?
+  student    Student? @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  type       String   // login_attempt | registered | violation | otp_resolved | access_granted
+  title      String
+  message    String
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([read])
+}
+
+model ActivityLog {
+  id         String   @id @default(cuid())
+  studentId  String?
+  student    Student? @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  action     String   // register | login_attempt | login_success | logout | violation | access_change
+  detail     String?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([studentId])
+}
+
+model Violation {
+  id         String   @id @default(cuid())
+  studentId  String
+  student    Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  type       String   // screenshot | screen_record | download_attempt | devtools | copy
+  detail     String?
+  createdAt  DateTime @default(now())
+
+  @@index([studentId])
+}
