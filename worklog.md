@@ -94,3 +94,26 @@ Work Log:
 
 Stage Summary:
 - AI features complete. Every video now has: AI-generated comprehensive summary (with key concepts, clinical points, key takeaways, quick revision cards), a per-video AI chatbot "Dr. Sage" with full dental knowledge that answers any question (with video context), AI-generated 5-question quiz, and personal notes. Watch progress tracking with checkmarks on course list. All powered by z-ai-web-dev-sdk (free). Demo credentials unchanged: admin via 5-click logo → owner@dentalacademy.com / Admin@Dental#2024 / dental-master-2024; demo student demo@student.com / student123 (owner must approve + grant course).
+
+---
+Task ID: 5
+Agent: main (Z.ai Code)
+Task: Add voice input (speech-to-text) + voice output (text-to-speech with real human-like male voice) to AI chat. Verify everything works.
+
+Work Log:
+- Built /api/student/tts/route.ts — POST {text, voice, speed} → returns audio/wav. Uses z-ai-web-dev-sdk TTS with voice="jam" (British gentleman male voice — sounds like a real human male professor). Truncates text to ~1000 chars at sentence boundary for single API call (avoids corrupted WAV merging).
+- Built /api/student/asr/route.ts — POST {audio: base64} → returns {text}. Uses z-ai-web-dev-sdk ASR for speech-to-text.
+- Updated ai-panel.tsx ChatTab with:
+  - Voice input: mic button (🎤) next to send. Uses MediaRecorder API to record audio → on stop, converts to base64 → sends to /api/student/asr → transcribed text fills the chat input. Shows "🔴 Recording…" state + "Transcribing your voice…" indicator.
+  - Voice output: "Listen" button (🔊) on every AI reply. Click → strips markdown → sends text to /api/student/tts → plays returned WAV via Audio API. Shows "speaking" indicator in header + "Stop" button. Click again to stop.
+  - Header shows "Dental AI · voice enabled · full dental knowledge"
+  - Helper text: "🎤 Mic to speak · 🔊 Listen on AI replies · Enter to send"
+- Tested all voices (jam, douji, kazi, tongtong, xiaochen, chuichui, luodo) via z-ai CLI. 'jam' (British gentleman) is the best male voice for "Dr. Sage" — sounds like a real human male professor.
+- Fixed WAV merging bug: initial approach concatenated WAV buffers by stripping headers, which produced corrupted audio. Simplified to single TTS call with text truncated to ~1000 chars.
+- End-to-end verified: admin login → approve demo student + grant course → student login → open video → Ask AI tab → sent "What is dentin made of?" → AI replied with detailed dental answer → clicked "Listen" → TTS generated WAV (170KB, 16s) → audio played with "speaking" indicator + Stop button → clicked Stop → audio stopped. Voice output confirmed working. ASR route returns proper errors for invalid/empty audio.
+
+Stage Summary:
+- Voice features complete. AI chat now supports:
+  1. 🎤 Voice input — tap mic, speak your question, tap stop → AI transcribes and fills the input
+  2. 🔊 Voice output — tap "Listen" on any AI reply → Dr. Sage reads the answer aloud in a real human-like male voice (British gentleman tone)
+- Both features use z-ai-web-dev-sdk (free, unlimited). Demo credentials unchanged.

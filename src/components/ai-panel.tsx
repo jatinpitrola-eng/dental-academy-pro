@@ -30,6 +30,10 @@ import {
   FileText,
   Clock,
   AlertCircle,
+  Mic,
+  Square,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 
 type SummaryData = {
@@ -214,6 +218,16 @@ function ChatTab({ videoId }: { videoId: string }) {
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // --- Voice input (mic) ---
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  // --- Voice output (TTS) ---
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
   const load = async () => {
     setLoading(true);
     try {
@@ -238,13 +252,126 @@ function ChatTab({ videoId }: { videoId: string }) {
     }
   }, [messages]);
 
+  // --- TTS: speak an AI message's text aloud ---
+  const speak = async (msg: ChatMsg) => {
+    // If already speaking this message, stop.
+    if (speakingId === msg.id) {
+      stopSpeaking();
+      return;
+    }
+    stopSpeaking();
+    setSpeakingId(msg.id);
+    try {
+      // Strip markdown for cleaner speech.
+      const clean = msg.content
+        .replace(/```[\s\S]*?```/g, " (code block) ")
+        .replace(/[#*`_~>|-]/g, " ")
+        .replace(/\[(.*?)\]\(.*?\)/g, "$1")
+        .replace(/\s+/g, " ")
+        .trim();
+      const res = await fetch("/api/student/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: clean, voice: "jam" }),
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("TTS failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => {
+        setSpeakingId(null);
+        URL.revokeObjectURL(url);
+      };
+      audio.onerror = () => {
+        setSpeakingId(null);
+        URL.revokeObjectURL(url);
+      };
+      await audio.play();
+    } catch (e) {
+      console.error("tts error", e);
+      setSpeakingId(null);
+    }
+  };
+
+  const stopSpeaking = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    setSpeakingId(null);
+  };
+
+  useEffect(() => {
+    return () => stopSpeaking();
+  }, []);
+
+  // --- Mic recording ---
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      mr.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      mr.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(audioChunksRef.current, {
+          type: "audio/webm",
+        });
+        if (blob.size === 0) {
+          setTranscribing(false);
+          return;
+        }
+        // Convert to base64 and send to ASR.
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+          const base64 = (reader.result as string).split(",")[1] || "";
+          try {
+            const res = await fetch("/api/student/asr", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ audio: base64 }),
+              credentials: "include",
+            });
+            const data = await res.json();
+            if (data.text) {
+              setInput((prev) => (prev ? prev + " " + data.text : data.text));
+            }
+          } catch (e) {
+            console.error("asr error", e);
+            setError("Could not transcribe your voice. Try again.");
+          } finally {
+            setTranscribing(false);
+          }
+        };
+        reader.readAsDataURL(blob);
+      };
+      mr.start();
+      mediaRecorderRef.current = mr;
+      setRecording(true);
+    } catch (e) {
+      console.error("mic error", e);
+      setError("Microphone access denied. Please allow it in your browser.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && recording) {
+      mediaRecorderRef.current.stop();
+      setRecording(false);
+      setTranscribing(true);
+    }
+  };
+
   const send = async () => {
     const msg = input.trim();
     if (!msg || sending) return;
     setInput("");
     setSending(true);
     setError(null);
-    // Optimistically add the user message.
     const tempId = `temp-${Date.now()}`;
     setMessages((m) => [
       ...m,
@@ -284,17 +411,37 @@ function ChatTab({ videoId }: { videoId: string }) {
             <Bot className="h-4 w-4" />
           </div>
           <div>
-            <div className="text-sm font-medium">Dr. Sage</div>
+            <div className="flex items-center gap-2 text-sm font-medium">
+              Dr. Sage
+              {speakingId && (
+                <span className="inline-flex items-center gap-1 text-xs font-normal text-emerald-600">
+                  <Volume2 className="h-3 w-3 animate-pulse" /> speaking
+                </span>
+              )}
+            </div>
             <div className="text-xs text-muted-foreground">
-              Dental AI · knows this lesson + full dentistry
+              Dental AI · voice enabled · full dental knowledge
             </div>
           </div>
         </div>
-        {messages.length > 0 && (
-          <Button size="sm" variant="ghost" onClick={clear} className="gap-1.5 text-xs text-muted-foreground">
-            <Trash2 className="h-3.5 w-3.5" /> Clear
-          </Button>
-        )}
+        <div className="flex items-center gap-1">
+          {speakingId && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={stopSpeaking}
+              className="gap-1.5 text-xs text-muted-foreground"
+              title="Stop voice"
+            >
+              <VolumeX className="h-3.5 w-3.5" /> Stop
+            </Button>
+          )}
+          {messages.length > 0 && (
+            <Button size="sm" variant="ghost" onClick={clear} className="gap-1.5 text-xs text-muted-foreground">
+              <Trash2 className="h-3.5 w-3.5" /> Clear
+            </Button>
+          )}
+        </div>
       </div>
 
       <ScrollArea className="max-h-[420px] min-h-[260px]">
@@ -310,8 +457,8 @@ function ChatTab({ videoId }: { videoId: string }) {
               </div>
               <p className="text-sm font-medium">Ask Dr. Sage anything</p>
               <p className="max-w-xs text-xs text-muted-foreground">
-                Questions about this lesson, dental procedures, materials,
-                anatomy — anything dental. I have full knowledge.
+                Type, or tap the mic to speak. Dr. Sage will reply in text and
+                can read answers aloud.
               </p>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {SUGGESTIONS.map((s) => (
@@ -330,7 +477,7 @@ function ChatTab({ videoId }: { videoId: string }) {
               <div
                 key={m.id}
                 className={cn(
-                  "flex gap-2.5",
+                  "group flex gap-2.5",
                   m.role === "user" && "flex-row-reverse",
                 )}
               >
@@ -353,6 +500,29 @@ function ChatTab({ videoId }: { videoId: string }) {
                   )}
                 >
                   <MarkdownRenderer content={m.content} />
+                  {/* Speaker button on AI replies — speaks the answer aloud */}
+                  {m.role === "assistant" && (
+                    <button
+                      onClick={() => speak(m)}
+                      className={cn(
+                        "mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition",
+                        speakingId === m.id
+                          ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300"
+                          : "bg-background/50 text-muted-foreground hover:bg-background hover:text-foreground",
+                      )}
+                      title={speakingId === m.id ? "Stop voice" : "Read aloud"}
+                    >
+                      {speakingId === m.id ? (
+                        <>
+                          <VolumeX className="h-3 w-3" /> Stop
+                        </>
+                      ) : (
+                        <>
+                          <Volume2 className="h-3 w-3" /> Listen
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
               </div>
             ))
@@ -367,6 +537,14 @@ function ChatTab({ videoId }: { videoId: string }) {
               </div>
             </div>
           )}
+          {transcribing && (
+            <div className="flex justify-center py-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Transcribing your voice…
+              </span>
+            </div>
+          )}
           {error && (
             <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
               {error}
@@ -377,6 +555,21 @@ function ChatTab({ videoId }: { videoId: string }) {
 
       <div className="border-t border-border/60 p-3">
         <div className="flex items-end gap-2">
+          {/* Mic button — toggle recording */}
+          <Button
+            onClick={recording ? stopRecording : startRecording}
+            disabled={transcribing || sending}
+            size="icon"
+            variant={recording ? "destructive" : "outline"}
+            className="shrink-0"
+            title={recording ? "Stop recording" : "Speak your question"}
+          >
+            {recording ? (
+              <Square className="h-4 w-4 animate-pulse" />
+            ) : (
+              <Mic className="h-4 w-4" />
+            )}
+          </Button>
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -386,17 +579,26 @@ function ChatTab({ videoId }: { videoId: string }) {
                 send();
               }
             }}
-            placeholder="Ask Dr. Sage anything about this lesson or dentistry…"
+            placeholder={
+              recording
+                ? "Listening… tap stop when done"
+                : "Ask Dr. Sage anything, or tap the mic to speak…"
+            }
             rows={1}
             className="max-h-32 resize-none"
           />
-          <Button onClick={send} disabled={sending || !input.trim()} size="icon">
-            <Send className="h-4 w-4" />
+          <Button onClick={send} disabled={sending || !input.trim()} size="icon" className="shrink-0">
+            {sending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
           </Button>
         </div>
         <p className="mt-1.5 text-[10px] text-muted-foreground">
-          Press Enter to send · Shift+Enter for new line · AI answers based on
-          this video + full dental knowledge
+          {recording
+            ? "🔴 Recording… tap the stop button to transcribe"
+            : "🎤 Mic to speak · 🔊 Listen on AI replies · Enter to send"}
         </p>
       </div>
     </div>
