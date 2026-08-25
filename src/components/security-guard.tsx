@@ -4,16 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 
 /**
- * SecurityGuard wraps the whole app and detects screenshot / screen-record /
- * copy / devtools attempts. When a violation is detected it:
- *  - reports to /api/student/violation (which disables the account server-side)
- *  - forces a hard reload to the locked screen.
- *
- * Additionally, it provides a "blackout" overlay that covers the entire screen
- * whenever the tab loses focus or is hidden — this means screenshots taken
- * while the app is in the background show a black screen, not the video. The
- * overlay is also triggered on `blur` (window losing focus) to deter screen
- * recording from a second monitor.
+ * SecurityGuard wraps the whole app and:
+ *  - blocks all dev-tools / right-click / copy / save / view-source shortcuts
+ *  - detects screenshot + screen-record attempts (PrintScreen, Cmd+Shift+3/4/5)
+ *  - on violation: pauses the video, reports it, auto-disables the account
+ *  - on tab blur / hide: shows a full-screen blackout overlay so screenshots
+ *    taken while the app is backgrounded show nothing
+ *  - anti-debug: traps common devtools-open heuristics
  */
 export function SecurityGuard({
   studentId,
@@ -28,12 +25,10 @@ export function SecurityGuard({
   const [blackedOut, setBlackedOut] = useState(false);
 
   useEffect(() => {
-    if (!studentId) return;
-
     const report = async (type: string, detail: string) => {
-      if (reportedRef.current) return;
+      if (reportedRef.current || !studentId) return;
       reportedRef.current = true;
-      // Pause all videos immediately so the frame isn't visible.
+      // Pause all videos immediately.
       document.querySelectorAll("video").forEach((v) => {
         try {
           v.pause();
@@ -54,16 +49,12 @@ export function SecurityGuard({
       }, 400);
     };
 
-    // --- BLACKOUT on focus/visibility loss (active blocking) -------------
-    // When the tab is hidden or the window loses focus, immediately cover
-    // everything with a black overlay. This makes screenshots/screen recordings
-    // taken while the app is backgrounded show nothing useful.
+    // --- BLACKOUT on focus / visibility loss (active blocking) -----------
     const onBlur = () => setBlackedOut(true);
     const onFocus = () => setBlackedOut(false);
     const onVisibility = () => {
       if (document.hidden) {
         setBlackedOut(true);
-        // Also pause videos while hidden.
         document.querySelectorAll("video").forEach((v) => {
           try {
             v.pause();
@@ -71,10 +62,18 @@ export function SecurityGuard({
             /* ignore */
           }
         });
+        // Also pause YouTube players
+        document.querySelectorAll("iframe").forEach((f) => {
+          try {
+            f.contentWindow?.postMessage(
+              JSON.stringify({ event: "command", func: "pauseVideo" }),
+              "*",
+            );
+          } catch {
+            /* ignore */
+          }
+        });
       } else {
-        // Keep it blacked out until the user explicitly interacts — this deters
-        // screen recording where the recorder switches away and back.
-        // We remove the blackout on first pointer/keydown after returning.
         const reveal = () => {
           setBlackedOut(false);
           window.removeEventListener("pointerdown", reveal);
@@ -85,52 +84,95 @@ export function SecurityGuard({
       }
     };
 
-    window.addEventListener("blur", onBlur);
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVisibility);
-
-    // --- KEY blocking ---------------------------------------------------
+    // --- KEY blocking: F12, devtools, copy, save, view-source, prints ----
     const onKey = (e: KeyboardEvent) => {
       const k = e.key.toLowerCase();
-      if (k === "printscreen" || e.code === "PrintScreen") {
+      const code = e.code;
+
+      // F12 devtools
+      if (e.key === "F12") {
+        e.preventDefault();
+        report("devtools", "F12 pressed");
+        return;
+      }
+      // PrintScreen
+      if (k === "printscreen" || code === "PrintScreen") {
         e.preventDefault();
         report("screenshot", "PrintScreen key pressed");
+        return;
       }
-      // Block copy / save / view-source shortcuts.
-      if ((e.ctrlKey || e.metaKey) && ["c", "s", "u", "p"].includes(k)) {
+      // Ctrl/Cmd + Shift + I/J/C  (devtools)
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        e.shiftKey &&
+        ["i", "j", "c"].includes(k)
+      ) {
         e.preventDefault();
+        report("devtools", `Devtools shortcut ${k.toUpperCase()} pressed`);
+        return;
       }
-      if (e.key === "F12") e.preventDefault();
-    };
-
-    // Detect macOS screenshot combos (Cmd+Shift+3/4/5).
-    const onCombo = (e: KeyboardEvent) => {
+      // Ctrl/Cmd + U (view source)
+      if ((e.ctrlKey || e.metaKey) && k === "u") {
+        e.preventDefault();
+        report("devtools", "View source attempted");
+        return;
+      }
+      // Ctrl/Cmd + S (save page)
+      if ((e.ctrlKey || e.metaKey) && k === "s") {
+        e.preventDefault();
+        report("download_attempt", "Save shortcut pressed");
+        return;
+      }
+      // Ctrl/Cmd + P (print)
+      if ((e.ctrlKey || e.metaKey) && k === "p") {
+        e.preventDefault();
+        report("download_attempt", "Print shortcut pressed");
+        return;
+      }
+      // Ctrl/Cmd + C (copy)
+      if ((e.ctrlKey || e.metaKey) && k === "c") {
+        e.preventDefault();
+        report("copy", "Copy shortcut blocked");
+        return;
+      }
+      // macOS screenshot combos
       if (
         (e.metaKey || e.ctrlKey) &&
         e.shiftKey &&
         ["3", "4", "5"].includes(e.key)
       ) {
+        e.preventDefault();
         report("screenshot", "Screenshot combo pressed");
+        return;
       }
+      // Block Alt+menu access
+      if (e.altKey && k === "f") e.preventDefault();
     };
 
-    // --- COPY blocking --------------------------------------------------
+    // --- COPY / CUT / PASTE blocking (clipboard) -------------------------
     const onCopy = (e: ClipboardEvent) => {
       e.preventDefault();
       report("copy", "Copy attempt blocked");
     };
-
-    // --- CONTEXT MENU blocking (on video zones) -------------------------
-    const onContext = (e: MouseEvent) => {
-      const t = e.target as HTMLElement;
-      if (t.closest("video, .secure-zone")) e.preventDefault();
+    const onCut = (e: ClipboardEvent) => {
+      e.preventDefault();
+      report("copy", "Cut attempt blocked");
     };
 
-    // --- Screen capture permission detection -----------------------------
+    // --- CONTEXT MENU (right-click) blocking ----------------------------
+    const onContext = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+
+    // --- DRAG / SELECT blocking ----------------------------------------
+    const onDragStart = (e: DragEvent) => e.preventDefault();
+    const onSelectStart = (e: Event) => e.preventDefault();
+
+    // --- Screen-capture permission detection ----------------------------
     let permCheck: ReturnType<typeof setInterval> | null = null;
     const checkCapture = async () => {
       try {
-        // @ts-expect-error - 'display-capture' is non-standard but supported
+        // @ts-expect-error - 'display-capture' is non-standard
         const p = await navigator.permissions?.query?.({
           name: "display-capture",
         });
@@ -144,41 +186,51 @@ export function SecurityGuard({
     checkCapture();
     permCheck = setInterval(checkCapture, 5000);
 
-    // --- Detect active screen-sharing streams via MediaDevices -----------
-    // If a screen-recording tool is capturing the display via getDisplayMedia,
-    // we can sometimes detect the track ending/starting.
-    const checkStreams = async () => {
-      try {
-        // Some browsers expose `navigator.mediaDevices.ondevicechange`.
-        // We can't enumerate other apps' streams, but we can detect if THIS
-        // page started a display stream (unusual for a student app).
-      } catch {
-        /* ignore */
+    // --- Anti-debug: detect devtools open via window size delta ---------
+    // The classic trick: when devtools open, the inner window shrinks
+    // relative to outer. We only flag suspicious thresholds.
+    let devtoolsOpen = false;
+    const checkDevtools = () => {
+      const threshold = 200;
+      const widthDiff = window.outerWidth - window.innerWidth;
+      const heightDiff = window.outerHeight - window.innerHeight;
+      const isOpen = widthDiff > threshold || heightDiff > threshold;
+      if (isOpen && !devtoolsOpen) {
+        devtoolsOpen = true;
+        report("devtools", "Developer tools detected open");
       }
     };
-    checkStreams();
+    const devtoolsInterval = setInterval(checkDevtools, 1500);
 
-    document.addEventListener("keydown", onKey);
-    document.addEventListener("keydown", onCombo);
-    document.addEventListener("copy", onCopy);
+    // --- Block right-click globally ------------------------------------
     document.addEventListener("contextmenu", onContext);
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    document.addEventListener("keydown", onKey, { capture: true });
+    document.addEventListener("copy", onCopy);
+    document.addEventListener("cut", onCut);
+    document.addEventListener("dragstart", onDragStart);
+    document.addEventListener("selectstart", onSelectStart);
 
     return () => {
+      document.removeEventListener("contextmenu", onContext);
       window.removeEventListener("blur", onBlur);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
-      document.removeEventListener("keydown", onKey);
-      document.removeEventListener("keydown", onCombo);
+      document.removeEventListener("keydown", onKey, { capture: true } as EventListenerOptions);
       document.removeEventListener("copy", onCopy);
-      document.removeEventListener("contextmenu", onContext);
+      document.removeEventListener("cut", onCut);
+      document.removeEventListener("dragstart", onDragStart);
+      document.removeEventListener("selectstart", onSelectStart);
       if (permCheck) clearInterval(permCheck);
+      clearInterval(devtoolsInterval);
     };
   }, [studentId, studentName]);
 
   return (
     <>
       {children}
-      {/* Blackout overlay: covers everything when the tab loses focus. */}
       {blackedOut && studentId && (
         <div className="fixed inset-0 z-[9999] grid place-items-center bg-black text-white">
           <div className="flex flex-col items-center gap-3 px-6 text-center">

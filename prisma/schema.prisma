@@ -83,12 +83,11 @@ model Video {
   course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
   title       String
   description String?
-  // Source can be an external URL (CDN/S3) or a locally uploaded file path.
-  sourceType  String   @default("url") // url | upload | telegram
-  sourceUrl   String   // direct playable URL or /api/student/video/[id]/stream
-  // For Telegram-hosted videos: the Telegram file_id. We fetch a fresh,
-  // time-limited stream URL on demand via the Bot API.
-  telegramFileId String?
+  // Source can be: url (direct mp4) | upload (local file) | youtube (hidden embed)
+  sourceType  String   @default("url")
+  sourceUrl   String
+  // For YouTube-hosted videos (hidden branding): the YouTube video id.
+  youtubeId   String?
   duration    Int      @default(0) // seconds
   sortOrder   Int      @default(0)
   createdAt   DateTime @default(now())

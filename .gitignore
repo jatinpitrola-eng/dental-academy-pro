@@ -52,3 +52,7 @@ prompt
 server.log
 # Skills directory
 /skills/
+# uploaded user files (videos are stored on YouTube/S3, not in repo)
+/upload/
+/db/*.db
+/db/*.db-journal

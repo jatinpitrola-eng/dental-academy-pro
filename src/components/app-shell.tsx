@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useApp, getTabRole, setTabRoleStorage } from "@/lib/store";
 import { api } from "@/lib/api";
 import { SecurityGuard } from "./security-guard";
+import { IntroGate } from "./intro-gate";
 import { LandingView } from "./views/landing";
 import { RegisterView } from "./views/register";
 import { LoginView } from "./views/login";
@@ -119,11 +120,13 @@ export function AppShell() {
   const isStandaloneView = view === "admin-dashboard";
 
   return (
-    <div className="app-ambient flex min-h-screen flex-col">
-      <SecurityGuard studentId={student?.id} studentName={student?.name}>
-        <main className="flex w-full flex-1 flex-col">{renderView()}</main>
-      </SecurityGuard>
-      {!isStandaloneView && <SiteFooter />}
-    </div>
+    <IntroGate>
+      <div className="app-ambient flex min-h-screen flex-col">
+        <SecurityGuard studentId={student?.id} studentName={student?.name}>
+          <main className="flex w-full flex-1 flex-col">{renderView()}</main>
+        </SecurityGuard>
+        {!isStandaloneView && <SiteFooter />}
+      </div>
+    </IntroGate>
   );
 }

@@ -44,6 +44,7 @@ export async function GET(
       duration: video.duration,
       sourceType: video.sourceType,
       sourceUrl: video.sourceUrl,
+      youtubeId: video.youtubeId,
       course: {
         id: video.course.id,
         title: video.course.title,

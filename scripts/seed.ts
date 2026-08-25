@@ -27,7 +27,9 @@ async function main() {
   console.log("  Password:", adminPassword);
   console.log("  Secret admin portal key:", admin.secretKey);
 
-  // Sample courses + videos
+  // Sample courses + videos. Using YouTube Unlisted-style IDs for free,
+  // unlimited hosting. The student sees them in OUR branded secure player —
+  // no YouTube UI visible.
   const courses = [
     {
       title: "Foundation of Dental Anatomy",
@@ -38,20 +40,20 @@ async function main() {
         {
           title: "Introduction to Tooth Anatomy",
           description: "Overview of primary and permanent dentition.",
-          sourceUrl: "/videos/lesson-1.mp4",
-          duration: 12,
+          youtube: "https://www.youtube.com/watch?v=O2lW3xY4YxI",
+          duration: 0,
         },
         {
           title: "Enamel & Dentin Structure",
           description: "Histology of hard dental tissues.",
-          sourceUrl: "/videos/lesson-2.mp4",
-          duration: 12,
+          youtube: "https://youtu.be/SQy3l0O9e7I",
+          duration: 0,
         },
         {
           title: "Root Morphology",
           description: "Understanding root canal systems.",
-          sourceUrl: "/videos/lesson-3.mp4",
-          duration: 20,
+          youtube: "https://www.youtube.com/watch?v=p7mD-43PWHk",
+          duration: 0,
         },
       ],
     },
@@ -64,14 +66,14 @@ async function main() {
         {
           title: "Diagnosis & Treatment Planning",
           description: "Pulp vitality tests and radiographic assessment.",
-          sourceUrl: "/videos/lesson-2.mp4",
-          duration: 12,
+          youtube: "https://www.youtube.com/watch?v=2gRi3m9G3Rk",
+          duration: 0,
         },
         {
           title: "Rotary Instrumentation Technique",
           description: "Hands-on rotary file systems.",
-          sourceUrl: "/videos/lesson-3.mp4",
-          duration: 20,
+          youtube: "https://youtu.be/J2O5M5R5oW4",
+          duration: 0,
         },
       ],
     },
@@ -84,14 +86,14 @@ async function main() {
         {
           title: "Smile Design Principles",
           description: "Golden proportion and facial aesthetics.",
-          sourceUrl: "/videos/lesson-1.mp4",
-          duration: 12,
+          youtube: "https://www.youtube.com/watch?v=5MgT4gS6l6g",
+          duration: 0,
         },
         {
           title: "Veneer Preparation Protocol",
           description: "Minimally invasive prep technique.",
-          sourceUrl: "/videos/lesson-3.mp4",
-          duration: 20,
+          youtube: "https://youtu.be/oY2k6q1R2hY",
+          duration: 0,
         },
       ],
     },
@@ -114,13 +116,24 @@ async function main() {
       },
     });
     for (const [vi, v] of c.videos.entries()) {
+      // Extract a YouTube id if a youtube link was provided, else use a local URL.
+      const yt =
+        v.youtube &&
+        (v.youtube.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/)?.[1] ||
+          null);
+      const sourceType = yt ? "youtube" : "url";
+      const sourceUrl = yt
+        ? `https://www.youtube.com/watch?v=${yt}`
+        : v.sourceUrl || "";
       await db.video.upsert({
         where: { id: `video-seed-${ci + 1}-${vi + 1}` },
         update: {
           courseId: course.id,
           title: v.title,
           description: v.description,
-          sourceUrl: v.sourceUrl,
+          sourceType,
+          sourceUrl,
+          youtubeId: yt,
           duration: v.duration,
         },
         create: {
@@ -128,8 +141,9 @@ async function main() {
           courseId: course.id,
           title: v.title,
           description: v.description,
-          sourceType: "url",
-          sourceUrl: v.sourceUrl,
+          sourceType,
+          sourceUrl,
+          youtubeId: yt,
           duration: v.duration,
           sortOrder: vi,
         },

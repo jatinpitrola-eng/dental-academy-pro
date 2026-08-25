@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/guards";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
+import { extractYoutubeId } from "@/lib/youtube";
 
 export const runtime = "nodejs";
 
@@ -24,8 +25,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const contentType = req.headers.get("content-type") || "";
-  let title: string, description: string, courseId: string, sourceType: string,
-    sourceUrl: string, duration: number;
+  let title: string,
+    description: string,
+    courseId: string,
+    sourceType: string,
+    sourceUrl: string,
+    youtubeId: string | null = null,
+    duration: number;
 
   if (contentType.includes("multipart/form-data")) {
     const form = await req.formData();
@@ -36,11 +42,18 @@ export async function POST(req: NextRequest) {
     const file = form.get("file") as File | null;
     const url = String(form.get("url") || "").trim();
 
-    if (url) {
+    // Priority 1: YouTube URL (free unlimited hosting, hidden from student)
+    const yt = extractYoutubeId(url);
+    if (yt) {
+      sourceType = "youtube";
+      youtubeId = yt;
+      sourceUrl = `https://www.youtube.com/watch?v=${yt}`;
+    } else if (url) {
+      // Priority 2: direct mp4 URL
       sourceType = "url";
       sourceUrl = url;
     } else if (file && file.size > 0) {
-      // Persist uploaded file to /public/uploads.
+      // Priority 3: file upload (saved locally)
       const dir = join(process.cwd(), "public", "uploads");
       await mkdir(dir, { recursive: true });
       const ext = (file.name.split(".").pop() || "mp4").toLowerCase();
@@ -53,7 +66,7 @@ export async function POST(req: NextRequest) {
       sourceUrl = `/uploads/${fname}`;
     } else {
       return NextResponse.json(
-        { error: "Provide a video URL or a file." },
+        { error: "Provide a YouTube URL, a video URL, or a file." },
         { status: 400 },
       );
     }
@@ -63,8 +76,16 @@ export async function POST(req: NextRequest) {
     description = String(body.description || "").trim();
     courseId = String(body.courseId || "");
     duration = Number(body.duration || 0);
-    sourceType = "url";
-    sourceUrl = String(body.sourceUrl || "").trim();
+    const url = String(body.sourceUrl || "").trim();
+    const yt = extractYoutubeId(url);
+    if (yt) {
+      sourceType = "youtube";
+      youtubeId = yt;
+      sourceUrl = `https://www.youtube.com/watch?v=${yt}`;
+    } else {
+      sourceType = "url";
+      sourceUrl = url;
+    }
   }
 
   if (!title || !courseId || !sourceUrl)
@@ -85,6 +106,7 @@ export async function POST(req: NextRequest) {
       courseId,
       sourceType,
       sourceUrl,
+      youtubeId,
       duration,
       sortOrder: count,
     },
@@ -103,7 +125,16 @@ export async function PATCH(req: NextRequest) {
   if (typeof body.title === "string") data.title = body.title.trim();
   if (typeof body.description === "string")
     data.description = body.description.trim();
-  if (typeof body.sourceUrl === "string") data.sourceUrl = body.sourceUrl;
+  if (typeof body.sourceUrl === "string") {
+    const yt = extractYoutubeId(body.sourceUrl);
+    if (yt) {
+      data.sourceType = "youtube";
+      data.youtubeId = yt;
+      data.sourceUrl = `https://www.youtube.com/watch?v=${yt}`;
+    } else {
+      data.sourceUrl = body.sourceUrl;
+    }
+  }
   if (typeof body.duration === "number") data.duration = body.duration;
   if (typeof body.sortOrder === "number") data.sortOrder = body.sortOrder;
   if (typeof body.courseId === "string") data.courseId = body.courseId;

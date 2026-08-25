@@ -1472,8 +1472,13 @@ function AddVideoDialog({
             <Input
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://…/video.mp4 (direct playable URL)"
+              placeholder="Paste YouTube link (youtu.be/… or watch?v=…) OR direct .mp4 URL"
             />
+            <p className="text-xs text-muted-foreground">
+              Tip: YouTube links are stored for free and the student will see
+              them in our own branded, secure player — no YouTube branding
+              visible.
+            </p>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span className="flex-1 border-t border-dashed border-border" />
               or upload
