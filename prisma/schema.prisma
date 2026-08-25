@@ -44,6 +44,9 @@ model Student {
   notifications   Notification[]
   activityLogs    ActivityLog[]
   violations      Violation[]
+  chatMessages    ChatMessage[]
+  watchProgress   WatchProgress[]
+  notes           VideoNote[]
 }
 
 model Session {
@@ -92,6 +95,11 @@ model Video {
   sortOrder   Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  summaries     VideoSummary[]
+  chatMessages  ChatMessage[]
+  watchProgress WatchProgress[]
+  notes         VideoNote[]
 
   @@index([courseId])
 }
@@ -168,4 +176,58 @@ model Violation {
   createdAt  DateTime @default(now())
 
   @@index([studentId])
+}
+
+// AI-generated summary of a video (cached so we don't re-call the LLM).
+model VideoSummary {
+  id          String   @id @default(cuid())
+  videoId     String   @unique
+  video       Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  transcript  String?  // raw YouTube transcript (if available)
+  summary     String   // AI-generated comprehensive summary (markdown)
+  keyPoints   String?  // JSON array of bullet points
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// Per-student, per-video chat history with the AI assistant.
+model ChatMessage {
+  id          String   @id @default(cuid())
+  studentId   String
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  videoId     String
+  video       Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  role        String   // user | assistant
+  content     String
+  createdAt   DateTime @default(now())
+
+  @@index([studentId, videoId])
+}
+
+// Per-student watch progress — track which videos have been watched.
+model WatchProgress {
+  id            String   @id @default(cuid())
+  studentId     String
+  student       Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  videoId     String
+  video         Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  watched       Boolean  @default(false)
+  lastPosition  Int      @default(0) // seconds
+  updatedAt     DateTime @updatedAt
+
+  @@unique([studentId, videoId])
+}
+
+// Student notes on a video.
+model VideoNote {
+  id          String   @id @default(cuid())
+  studentId   String
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  videoId     String
+  video       Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  content     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([studentId, videoId])
 }

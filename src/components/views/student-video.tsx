@@ -7,6 +7,7 @@ import { Brand } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { AiPanel } from "@/components/ai-panel";
 import {
   ArrowLeft,
   Play,
@@ -18,6 +19,7 @@ import {
   Lock,
   ShieldAlert,
   Clock,
+  CheckCircle2,
 } from "lucide-react";
 
 type VideoDetail = {
@@ -185,12 +187,17 @@ export function StudentVideo() {
   const toggle = () => {
     if (ytPlayerRef.current) {
       if (playing) ytPlayerRef.current.pauseVideo();
-      else ytPlayerRef.current.playVideo();
+      else {
+        ytPlayerRef.current.playVideo();
+        markWatched();
+      }
     } else {
       const v = htmlVideoRef.current;
       if (!v) return;
-      if (v.paused) v.play().catch(() => {});
-      else v.pause();
+      if (v.paused) {
+        v.play().catch(() => {});
+        markWatched();
+      } else v.pause();
     }
   };
 
@@ -224,6 +231,14 @@ export function StudentVideo() {
     setTimeout(() => {
       window.location.href = "/";
     }, 500);
+  };
+
+  // Mark this video as watched (fire-and-forget) when playback starts.
+  const markWatched = () => {
+    api("/api/student/progress", {
+      method: "POST",
+      body: JSON.stringify({ videoId, watched: true }),
+    }).catch(() => {});
   };
 
   if (loading)
@@ -441,6 +456,9 @@ export function StudentVideo() {
             </CardContent>
           </Card>
         </div>
+
+        {/* AI panel — Summary, Ask AI, Quiz, Notes */}
+        <AiPanel videoId={video.id} />
       </section>
     </div>
   );

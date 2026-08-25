@@ -69,3 +69,28 @@ Work Log:
 
 Stage Summary:
 - All requested features implemented and verified. YouTube videos play in fully-branded secure player (no YouTube UI visible to student). Intro video plays unskippable on every fresh session. Full security: F12, devtools, right-click, copy, save, screenshot combos — all blocked + auto-disable on violation. Responsive across phone/tablet/desktop. README has step-by-step Vercel + GitHub deployment guide. Demo credentials: admin via 5-click logo → owner@dentalacademy.com / Admin@Dental#2024 / dental-master-2024; demo student demo@student.com / student123 (no courses by default — owner must approve + select).
+
+---
+Task ID: 4
+Agent: main (Z.ai Code)
+Task: Add AI features — video transcript + AI summary below video, per-video AI chatbot with full dental knowledge, AI-generated quiz, notes, watch progress tracking.
+
+Work Log:
+- Installed youtube-transcript package for fetching YouTube captions.
+- Added DB models: VideoSummary (cached AI summary + transcript), ChatMessage (per-student per-video chat history), WatchProgress (watched videos + last position), VideoNote (student notes). Added relations to Video + Student models. Re-ran db:push --force-reset + seed.
+- Built `src/lib/ai.ts` — LLM client wrapper using z-ai-web-dev-sdk. Includes DENTAL_EXPERT_SYSTEM prompt with comprehensive dental knowledge (anatomy, pathology, operative, endo, prosthodo, surgery, perio, ortho, pedo, aesthetic, implants, radiology, materials, pharmacology, public health). llmComplete() for single calls, llmChat() for multi-turn.
+- Built `src/lib/transcript.ts` — fetchYoutubeTranscript() using youtube-transcript package.
+- Built 4 API routes under /api/student/videos/[id]/:
+  - summary/route.ts — fetches YouTube transcript, calls LLM to generate comprehensive Markdown summary (Overview, Key Concepts, Clinical Points, Cautions, Key Takeaways) + 5-7 quick revision bullet points. Cached in VideoSummary table.
+  - chat/route.ts — GET returns conversation history, POST sends message + gets AI reply (with video context: title, description, cached summary, transcript excerpt). DELETE clears history. Uses DENTAL_EXPERT_SYSTEM + video context as system prompt.
+  - quiz/route.ts — generates 5-question multiple-choice quiz (AI), cached in memory 10 min. Returns JSON with question/options/answer/explanation.
+  - notes/route.ts — GET/POST/DELETE student notes per video.
+- Built /api/student/progress/route.ts — POST mark watched, GET list watched video ids.
+- Built `src/components/ai-panel.tsx` — tabbed panel below video: Summary tab (markdown summary + quick revision cards + collapsible transcript), Ask AI tab (Dr. Sage chatbot with message history, suggested questions, markdown rendering, clear conversation), Quiz tab (5 MCQs with answer selection, submit + score + explanations), Notes tab (add/list/delete personal notes). Includes lightweight MarkdownRenderer.
+- Added AiPanel to student video view below the video info cards.
+- Added watch-progress tracking: markWatched() fires when student plays the video.
+- Updated student course view: shows "X/Y lessons watched" progress bar + Watched checkmark badge on watched videos. Refreshes watched state on window focus.
+- End-to-end verified with Agent Browser: admin approved demo student login + granted course → student logged in → opened video → AI Summary tab auto-generated comprehensive markdown summary with 6 key points → Ask AI tab: asked "What is enamel made of?" → Dr. Sage replied with detailed dental answer (enamel composition, hydroxyapatite, crystalline structure, clinical relevance) → Quiz tab generated 5 dental MCQs → Notes tab: added note "Remember: enamel is the hardest tissue" → verified note saved → marked video as watched → course view shows "1/3 lessons watched" + Watched badge. All 4 AI features verified via API. Fixed prisma relation name bug (summary → summaries).
+
+Stage Summary:
+- AI features complete. Every video now has: AI-generated comprehensive summary (with key concepts, clinical points, key takeaways, quick revision cards), a per-video AI chatbot "Dr. Sage" with full dental knowledge that answers any question (with video context), AI-generated 5-question quiz, and personal notes. Watch progress tracking with checkmarks on course list. All powered by z-ai-web-dev-sdk (free). Demo credentials unchanged: admin via 5-click logo → owner@dentalacademy.com / Admin@Dental#2024 / dental-master-2024; demo student demo@student.com / student123 (owner must approve + grant course).
