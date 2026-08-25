@@ -84,8 +84,11 @@ model Video {
   title       String
   description String?
   // Source can be an external URL (CDN/S3) or a locally uploaded file path.
-  sourceType  String   @default("url") // url | upload
+  sourceType  String   @default("url") // url | upload | telegram
   sourceUrl   String   // direct playable URL or /api/student/video/[id]/stream
+  // For Telegram-hosted videos: the Telegram file_id. We fetch a fresh,
+  // time-limited stream URL on demand via the Bot API.
+  telegramFileId String?
   duration    Int      @default(0) // seconds
   sortOrder   Int      @default(0)
   createdAt   DateTime @default(now())
