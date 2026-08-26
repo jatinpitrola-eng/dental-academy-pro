@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getStudentSession } from "@/lib/auth";
+import { checkAccess } from "@/lib/access";
 
 export const runtime = "nodejs";
 
-// Returns the playable source for a single video if the student has access.
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -21,20 +21,7 @@ export async function GET(
   if (!video)
     return NextResponse.json({ error: "Not found." }, { status: 404 });
 
-  // Confirm active grant.
-  const grant = await db.accessGrant.findFirst({
-    where: {
-      studentId: session.id,
-      courseId: video.courseId,
-      revoked: false,
-      expiresAt: { gt: new Date() },
-    },
-  });
-  if (!grant)
-    return NextResponse.json(
-      { error: "You do not have access to this video." },
-      { status: 403 },
-    );
+  const access = await checkAccess(session.id, video.courseId);
 
   return NextResponse.json({
     video: {
@@ -50,7 +37,7 @@ export async function GET(
         title: video.course.title,
         color: video.course.color,
       },
-      expiresAt: grant.expiresAt,
+      expiresAt: access.expiresAt,
     },
   });
 }

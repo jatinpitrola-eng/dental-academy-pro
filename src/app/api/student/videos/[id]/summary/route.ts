@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getStudentSession } from "@/lib/auth";
+import { checkAccess } from "@/lib/access";
 
 export const runtime = "nodejs";
 // LLM calls can take a while + we fetch transcripts over the network.
