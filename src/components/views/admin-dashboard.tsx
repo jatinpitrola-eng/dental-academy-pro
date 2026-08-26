@@ -1153,28 +1153,25 @@ function CoursesTab() {
     await api(`/api/admin/videos?id=${id}`, { method: "DELETE" });
     load();
   };
-  const editCourse = async (c: CourseRow) => {
-    const title = prompt("Course title:", c.title);
-    if (title === null) return;
-    const description = prompt("Description:", c.description || "");
-    if (description === null) return;
+  const [editCourseItem, setEditCourseItem] = useState<CourseRow | null>(null);
+  const [editVideoItem, setEditVideoItem] = useState<VideoRow | null>(null);
+
+  const saveCourseEdit = async (id: string, title: string, description: string) => {
     await api("/api/admin/courses", {
       method: "PATCH",
-      body: JSON.stringify({ id: c.id, title: title.trim(), description: description.trim() }),
+      body: JSON.stringify({ id, title: title.trim(), description: description.trim() }),
     });
+    setEditCourseItem(null);
     load();
   };
-  const editVideo = async (v: VideoRow) => {
-    const title = prompt("Video title:", v.title);
-    if (title === null) return;
-    const sourceUrl = prompt("Video URL (YouTube link or direct .mp4):", v.sourceUrl);
-    if (sourceUrl === null) return;
-    const data: Record<string, unknown> = { id: v.id, title: title.trim() };
+  const saveVideoEdit = async (id: string, title: string, sourceUrl: string) => {
+    const data: Record<string, unknown> = { id, title: title.trim() };
     if (sourceUrl.trim()) data.sourceUrl = sourceUrl.trim();
     await api("/api/admin/videos", {
       method: "PATCH",
       body: JSON.stringify(data),
     });
+    setEditVideoItem(null);
     load();
   };
 
@@ -1256,7 +1253,7 @@ function CoursesTab() {
                     className="hover:bg-accent"
                     onClick={(e) => {
                       e.stopPropagation();
-                      editCourse(c);
+                      setEditCourseItem(c);
                     }}
                   >
                     <Pencil className="h-4 w-4" />
@@ -1302,7 +1299,7 @@ function CoursesTab() {
                             size="sm"
                             variant="ghost"
                             className="hover:bg-accent"
-                            onClick={() => editVideo(v)}
+                            onClick={() => setEditVideoItem(v)}
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
@@ -1344,7 +1341,127 @@ function CoursesTab() {
           }}
         />
       )}
+      {editCourseItem && (
+        <EditCourseDialog
+          course={editCourseItem}
+          onClose={() => setEditCourseItem(null)}
+          onSave={(title, description) => saveCourseEdit(editCourseItem.id, title, description)}
+        />
+      )}
+      {editVideoItem && (
+        <EditVideoDialog
+          video={editVideoItem}
+          onClose={() => setEditVideoItem(null)}
+          onSave={(title, sourceUrl) => saveVideoEdit(editVideoItem.id, title, sourceUrl)}
+        />
+      )}
     </div>
+  );
+}
+
+function EditCourseDialog({
+  course,
+  onClose,
+  onSave,
+}: {
+  course: CourseRow;
+  onClose: () => void;
+  onSave: (title: string, description: string) => void;
+}) {
+  const [title, setTitle] = useState(course.title);
+  const [description, setDescription] = useState(course.description || "");
+  const [loading, setLoading] = useState(false);
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit course</DialogTitle>
+          <DialogDescription>Update the course title and description.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-2">
+            <Label>Title</Label>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Course title" />
+          </div>
+          <div className="space-y-2">
+            <Label>Description</Label>
+            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button
+            disabled={loading || !title.trim()}
+            onClick={async () => {
+              setLoading(true);
+              try { await onSave(title, description); } catch { setLoading(false); }
+            }}
+            className="gap-1.5"
+          >
+            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+            Save changes
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditVideoDialog({
+  video,
+  onClose,
+  onSave,
+}: {
+  video: VideoRow;
+  onClose: () => void;
+  onSave: (title: string, sourceUrl: string) => void;
+}) {
+  const [title, setTitle] = useState(video.title);
+  const [sourceUrl, setSourceUrl] = useState(video.sourceUrl || "");
+  const [loading, setLoading] = useState(false);
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit video</DialogTitle>
+          <DialogDescription>Update the video title and URL.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-2">
+            <Label>Title</Label>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Video title" />
+          </div>
+          <div className="space-y-2">
+            <Label>Video URL</Label>
+            <Input
+              value={sourceUrl}
+              onChange={(e) => setSourceUrl(e.target.value)}
+              placeholder="Paste YouTube link or direct .mp4 URL"
+            />
+            <p className="text-xs text-muted-foreground">
+              YouTube links are automatically detected and the video plays in our
+              branded player (no YouTube UI visible to students).
+            </p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button
+            disabled={loading || !title.trim()}
+            onClick={async () => {
+              setLoading(true);
+              try { await onSave(title, sourceUrl); } catch { setLoading(false); }
+            }}
+            className="gap-1.5"
+          >
+            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+            Save changes
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
