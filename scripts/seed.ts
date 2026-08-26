@@ -27,88 +27,52 @@ async function main() {
   console.log("  Password:", adminPassword);
   console.log("  Secret admin portal key:", admin.secretKey);
 
-  // Sample courses + videos. Using YouTube Unlisted-style IDs for free,
-  // unlimited hosting. The student sees them in OUR branded secure player —
-  // no YouTube UI visible.
+  // Sample courses + videos with FIXED IDs that match auto-seed.ts.
   const courses = [
     {
+      id: "course-1",
       title: "Foundation of Dental Anatomy",
-      description:
-        "Master the core anatomical structures of the human dentition — from enamel microstructure to root morphology.",
+      description: "Master the core anatomical structures of the human dentition — from enamel microstructure to root morphology.",
       color: "#10b981",
       videos: [
-        {
-          title: "Introduction to Tooth Anatomy",
-          description: "Overview of primary and permanent dentition.",
-          youtube: "https://www.youtube.com/watch?v=O2lW3xY4YxI",
-          duration: 0,
-        },
-        {
-          title: "Enamel & Dentin Structure",
-          description: "Histology of hard dental tissues.",
-          youtube: "https://youtu.be/SQy3l0O9e7I",
-          duration: 0,
-        },
-        {
-          title: "Root Morphology",
-          description: "Understanding root canal systems.",
-          youtube: "https://www.youtube.com/watch?v=p7mD-43PWHk",
-          duration: 0,
-        },
+        { id: "video-1-1", title: "Introduction to Tooth Anatomy", description: "Overview of primary and permanent dentition.", youtube: "https://www.youtube.com/watch?v=O2lW3xY4YxI", duration: 0 },
+        { id: "video-1-2", title: "Enamel & Dentin Structure", description: "Histology of hard dental tissues.", youtube: "https://youtu.be/SQy3l0O9e7I", duration: 0 },
+        { id: "video-1-3", title: "Root Morphology", description: "Understanding root canal systems.", youtube: "https://www.youtube.com/watch?v=p7mD-43PWHk", duration: 0 },
       ],
     },
     {
+      id: "course-2",
       title: "Modern Endodontics",
-      description:
-        "Step-by-step endodontic therapy — diagnosis, instrumentation, obturation and modern rotary systems.",
+      description: "Step-by-step endodontic therapy — diagnosis, instrumentation, obturation.",
       color: "#0ea5e9",
       videos: [
-        {
-          title: "Diagnosis & Treatment Planning",
-          description: "Pulp vitality tests and radiographic assessment.",
-          youtube: "https://www.youtube.com/watch?v=2gRi3m9G3Rk",
-          duration: 0,
-        },
-        {
-          title: "Rotary Instrumentation Technique",
-          description: "Hands-on rotary file systems.",
-          youtube: "https://youtu.be/J2O5M5R5oW4",
-          duration: 0,
-        },
+        { id: "video-2-1", title: "Diagnosis & Treatment Planning", description: "Pulp vitality tests and radiographic assessment.", youtube: "https://www.youtube.com/watch?v=2gRi3m9G3Rk", duration: 0 },
+        { id: "video-2-2", title: "Rotary Instrumentation Technique", description: "Hands-on rotary file systems.", youtube: "https://youtu.be/J2O5M5R5oW4", duration: 0 },
       ],
     },
     {
+      id: "course-3",
       title: "Aesthetic Dentistry Masterclass",
-      description:
-        "Veneers, smile design, and composite artistry taught by leading aesthetic dentists.",
+      description: "Veneers, smile design, and composite artistry taught by leading aesthetic dentists.",
       color: "#f59e0b",
       videos: [
-        {
-          title: "Smile Design Principles",
-          description: "Golden proportion and facial aesthetics.",
-          youtube: "https://www.youtube.com/watch?v=5MgT4gS6l6g",
-          duration: 0,
-        },
-        {
-          title: "Veneer Preparation Protocol",
-          description: "Minimally invasive prep technique.",
-          youtube: "https://youtu.be/oY2k6q1R2hY",
-          duration: 0,
-        },
+        { id: "video-3-1", title: "Smile Design Principles", description: "Golden proportion and facial aesthetics.", youtube: "https://www.youtube.com/watch?v=5MgT4gS6l6g", duration: 0 },
+        { id: "video-3-2", title: "Veneer Preparation Protocol", description: "Minimally invasive prep technique.", youtube: "https://youtu.be/oY2k6q1R2hY", duration: 0 },
       ],
     },
   ];
 
   for (const [ci, c] of courses.entries()) {
+    const courseId = c.id || `course-seed-${ci + 1}`;
     const course = await db.course.upsert({
-      where: { id: `course-seed-${ci + 1}` },
+      where: { id: courseId },
       update: {
         title: c.title,
         description: c.description,
         color: c.color,
       },
       create: {
-        id: `course-seed-${ci + 1}`,
+        id: courseId,
         title: c.title,
         description: c.description,
         color: c.color,
@@ -116,6 +80,7 @@ async function main() {
       },
     });
     for (const [vi, v] of c.videos.entries()) {
+      const videoId = v.id || `video-seed-${ci + 1}-${vi + 1}`;
       // Extract a YouTube id if a youtube link was provided, else use a local URL.
       const yt =
         v.youtube &&
@@ -126,7 +91,7 @@ async function main() {
         ? `https://www.youtube.com/watch?v=${yt}`
         : v.sourceUrl || "";
       await db.video.upsert({
-        where: { id: `video-seed-${ci + 1}-${vi + 1}` },
+        where: { id: videoId },
         update: {
           courseId: course.id,
           title: v.title,
@@ -137,7 +102,7 @@ async function main() {
           duration: v.duration,
         },
         create: {
-          id: `video-seed-${ci + 1}-${vi + 1}`,
+          id: videoId,
           courseId: course.id,
           title: v.title,
           description: v.description,
@@ -151,14 +116,12 @@ async function main() {
     }
   }
 
-  // A demo student so the owner can test the full flow immediately.
-  // NOTE: the demo student starts with NO course access — the owner must
-  // approve a login and select course(s) during approval (or via the Students
-  // tab) before any course unlocks. This matches the real flow.
+  // A demo student with FIXED ID (matches auto-seed.ts).
   const demo = await db.student.upsert({
     where: { email: "demo@student.com" },
     update: {},
     create: {
+      id: "student-demo",
       name: "Demo Student",
       email: "demo@student.com",
       phone: "9876543210",
