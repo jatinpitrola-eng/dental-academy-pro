@@ -29,12 +29,20 @@ export async function GET(
     where: { videoId: video.id },
   }).catch(() => null);
   if (cached) {
+    // Generate auto-notes from cached transcript.
+    const autoNotes = generateAutoNotes(
+      video.title,
+      video.course.title,
+      cached.transcript as string | null,
+      video.description as string | null,
+    );
     return NextResponse.json({
       summary: cached.summary,
       keyPoints: cached.keyPoints
         ? JSON.parse(cached.keyPoints)
         : [],
       transcript: cached.transcript,
+      autoNotes,
       cached: true,
     });
   }
