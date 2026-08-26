@@ -29,6 +29,9 @@ function addTimestamps(data: Record<string, unknown>): Record<string, unknown> {
 // Execute an insert. If it fails due to a missing column (updatedAt/createdAt),
 // retry without that column. Returns the inserted row if RETURNING is supported.
 async function safeInsert(table: string, data: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+  // Ensure data has an id — many tables require it.
+  if (!data.id) data.id = generateId();
+  addTimestamps(data);
   const tryInsert = async (d: Record<string, unknown>): Promise<Record<string, unknown> | null> => {
     const keys = Object.keys(d).map(k => `"${k}"`).join(", ");
     const placeholders = Object.keys(d).map(() => "?").join(", ");
@@ -133,7 +136,7 @@ export const db = {
       return Number((res.rows[0] as Record<string, unknown>).count);
     },
     async create({ data }: { data: Record<string, unknown> }) {
-      if (!data.id) data.id = generateId(); addTimestamps(data);
+      
       const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
       const placeholders = Object.keys(data).map(() => "?").join(", ");
       const args = Object.values(data);
@@ -171,7 +174,7 @@ export const db = {
       return Number((res.rows[0] as Record<string, unknown>).count);
     },
     async create({ data }: { data: Record<string, unknown> }) {
-      if (!data.id) data.id = generateId(); addTimestamps(data);
+      
       const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
       const placeholders = Object.keys(data).map(() => "?").join(", ");
       const args = Object.values(data);
@@ -212,7 +215,7 @@ export const db = {
       return course;
     },
     async create({ data }: { data: Record<string, unknown> }) {
-      if (!data.id) data.id = generateId(); addTimestamps(data);
+      
       const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
       const placeholders = Object.keys(data).map(() => "?").join(", ");
       const args = Object.values(data);
@@ -265,7 +268,7 @@ export const db = {
       return Number((res.rows[0] as Record<string, unknown>).count);
     },
     async create({ data }: { data: Record<string, unknown> }) {
-      if (!data.id) data.id = generateId(); addTimestamps(data);
+      
       const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
       const placeholders = Object.keys(data).map(() => "?").join(", ");
       const args = Object.values(data);
@@ -362,7 +365,7 @@ export const db = {
       return Number((res.rows[0] as Record<string, unknown>).count);
     },
     async create({ data }: { data: Record<string, unknown> }) {
-      if (!data.id) data.id = generateId(); addTimestamps(data);
+      
       const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
       const placeholders = Object.keys(data).map(() => "?").join(", ");
       const args = Object.values(data);
@@ -399,7 +402,7 @@ export const db = {
       return Number((res.rows[0] as Record<string, unknown>).count);
     },
     async create({ data }: { data: Record<string, unknown> }) {
-      if (!data.id) data.id = generateId(); addTimestamps(data);
+      
       const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
       const placeholders = Object.keys(data).map(() => "?").join(", ");
       const args = Object.values(data);
@@ -428,7 +431,7 @@ export const db = {
       return logs;
     },
     async create({ data }: { data: Record<string, unknown> }) {
-      if (!data.id) data.id = generateId(); addTimestamps(data);
+      
       const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
       const placeholders = Object.keys(data).map(() => "?").join(", ");
       const args = Object.values(data);
@@ -455,7 +458,7 @@ export const db = {
       return Number((res.rows[0] as Record<string, unknown>).count);
     },
     async create({ data }: { data: Record<string, unknown> }) {
-      if (!data.id) data.id = generateId(); addTimestamps(data);
+      
       const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
       const placeholders = Object.keys(data).map(() => "?").join(", ");
       const args = Object.values(data);
@@ -495,7 +498,7 @@ export const db = {
       return res.rows.map(r => toCamel(r as Record<string, unknown>));
     },
     async create({ data }: { data: Record<string, unknown> }) {
-      if (!data.id) data.id = generateId(); addTimestamps(data);
+      
       const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
       const placeholders = Object.keys(data).map(() => "?").join(", ");
       const args = Object.values(data);
@@ -536,7 +539,7 @@ export const db = {
       return res.rows.map(r => toCamel(r as Record<string, unknown>));
     },
     async create({ data }: { data: Record<string, unknown> }) {
-      if (!data.id) data.id = generateId(); addTimestamps(data);
+      
       const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
       const placeholders = Object.keys(data).map(() => "?").join(", ");
       const args = Object.values(data);
