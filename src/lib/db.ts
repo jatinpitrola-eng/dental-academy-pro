@@ -21,6 +21,7 @@ function createPrismaClient(): PrismaClient {
   }
 
   // Fallback: local file-based SQLite (for local dev).
+  // This should only be used in local development.
   return new PrismaClient({
     log: ["error", "warn"],
   });
