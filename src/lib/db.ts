@@ -219,6 +219,14 @@ export const db = {
       await safeInsert("Course", data);
       return data;
     },
+    async update({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) {
+      const setParts = Object.keys(data).map(k => `"${k}" = ?`).join(", ");
+      const setArgs = Object.values(data);
+      const { sql, args } = buildWhere(where);
+      await client.execute({ sql: `UPDATE "Course" SET ${setParts}${sql}`, args: [...setArgs, ...args] });
+      const res = await client.execute({ sql: `SELECT * FROM "Course"${sql} LIMIT 1`, args });
+      return res.rows[0] ? toCamel(res.rows[0] as Record<string, unknown>) : null;
+    },
     async delete({ where }: { where: Record<string, unknown> }) {
       const { sql, args } = buildWhere(where);
       await client.execute({ sql: `DELETE FROM "Course"${sql}`, args });
