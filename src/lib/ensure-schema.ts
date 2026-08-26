@@ -211,3 +211,4 @@ async function doCreateSchema(): Promise<void> {
     console.error("schema creation error:", e);
   }
 }
+// force rebuild Wed Aug 26 09:25:04 UTC 2026
