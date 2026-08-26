@@ -297,17 +297,28 @@ export const db = {
       return Number((res.rows[0] as Record<string, unknown>).count);
     },
     async upsert({ where, update, create }: { where: Record<string, unknown>; update: Record<string, unknown>; create: Record<string, unknown> }) {
-      // Check if exists
-      const { sql, args } = buildWhere(where);
-      const existing = await client.execute({ sql: `SELECT * FROM "AccessGrant"${sql} LIMIT 1`, args });
+      // Handle compound key (studentId_courseId) — split into individual columns.
+      let whereParts: string[] = [];
+      let whereArgs: unknown[] = [];
+      for (const [k, v] of Object.entries(where)) {
+        if (k.includes("_") && typeof v === "object" && v !== null) {
+          const compound = v as Record<string, unknown>;
+          for (const [ck, cv] of Object.entries(compound)) {
+            whereParts.push(`"${ck}" = ?`);
+            whereArgs.push(cv);
+          }
+        } else if (v !== null && v !== undefined) {
+          whereParts.push(`"${k}" = ?`);
+          whereArgs.push(v);
+        }
+      }
+      const whereSql = whereParts.length > 0 ? " WHERE " + whereParts.join(" AND ") : "";
+      const existing = await client.execute({ sql: `SELECT * FROM "AccessGrant"${whereSql} LIMIT 1`, args: whereArgs }).catch(() => ({ rows: [] }));
       if (existing.rows.length > 0) {
         const setParts = Object.keys(update).map(k => `"${k}" = ?`).join(", ");
         const setArgs = Object.values(update);
-        await client.execute({ sql: `UPDATE "AccessGrant" SET ${setParts}${sql}`, args: [...setArgs, ...args] });
+        await client.execute({ sql: `UPDATE "AccessGrant" SET ${setParts}${whereSql}`, args: [...setArgs, ...whereArgs] }).catch(() => {});
       } else {
-        const keys = Object.keys(create).map(k => `"${k}"`).join(", ");
-        const placeholders = Object.keys(create).map(() => "?").join(", ");
-        const createArgs = Object.values(create);
         await safeInsert("AccessGrant", create);
       }
       return create;

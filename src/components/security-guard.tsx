@@ -65,9 +65,58 @@ export function SecurityGuard({
     };
 
     // ==========================================
-    // KEYBOARD — only screenshot + devtools shortcuts
-    // This is the ONLY detection method. No blur, no clipboard,
-    // no visibility change — those cause false positives.
+    // WINDOW BLUR — catches Win+Shift+S (which steals focus from browser)
+    // BUT: we wait 800ms before reporting. If the window regains focus
+    // quickly (< 800ms), it was likely a UI flicker, not a screenshot.
+    // We also check the clipboard on focus return — if an image is found,
+    // it was definitely a screenshot.
+    // ==========================================
+    let blurTimeout: ReturnType<typeof setTimeout> | null = null;
+    const onBlur = () => {
+      if (!studentId) return;
+      // Show blackout immediately.
+      setBlackedOut(true);
+      // Pause all videos.
+      document.querySelectorAll("video").forEach((v) => {
+        try { v.pause(); } catch { /* ignore */ }
+      });
+      document.querySelectorAll("iframe").forEach((f) => {
+        try {
+          f.contentWindow?.postMessage(
+            JSON.stringify({ event: "command", func: "pauseVideo" }),
+            "*",
+          );
+        } catch { /* ignore */ }
+      });
+      // Wait 800ms before reporting — distinguishes a real screenshot
+      // (Win+Shift+S keeps focus away) from a UI flicker.
+      blurTimeout = setTimeout(async () => {
+        // Check clipboard for image — confirms it was a screenshot.
+        let hasImage = false;
+        try {
+          if (navigator.clipboard && navigator.clipboard.read) {
+            const items = await navigator.clipboard.read();
+            hasImage = items.some((item: { types: string[] }) =>
+              item.types.some((t) => t.startsWith("image/")),
+            );
+          }
+        } catch { /* permission denied — assume screenshot anyway */ }
+        // Report if blur lasted > 800ms (real screenshot tool).
+        report("screenshot", hasImage
+          ? "Image found in clipboard after window blur (screenshot confirmed)"
+          : "Window focus lost for >800ms — possible Win+Shift+S or screen recording");
+      }, 800);
+    };
+
+    const onFocus = () => {
+      // Cancel pending violation report (was a quick focus flicker).
+      if (blurTimeout) { clearTimeout(blurTimeout); blurTimeout = null; }
+      // Remove blackout (no screenshot was taken).
+      if (!reportedRef.current) setBlackedOut(false);
+    };
+
+    // ==========================================
+    // KEYBOARD — screenshot + devtools shortcuts
     // ==========================================
     const onKey = (e: KeyboardEvent) => {
       const k = e.key.toLowerCase();
@@ -155,11 +204,15 @@ export function SecurityGuard({
     checkCapture();
 
     // Register listeners.
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("focus", onFocus);
     document.addEventListener("keydown", onKey, { capture: true });
     document.addEventListener("copy", onCopy);
     document.addEventListener("contextmenu", onContext);
 
     return () => {
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("focus", onFocus);
       document.removeEventListener("keydown", onKey, { capture: true } as EventListenerOptions);
       document.removeEventListener("copy", onCopy);
       document.removeEventListener("contextmenu", onContext);

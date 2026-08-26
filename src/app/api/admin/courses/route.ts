@@ -45,8 +45,14 @@ export async function PATCH(req: NextRequest) {
   if (typeof body.color === "string") data.color = body.color;
   if (typeof body.published === "boolean") data.published = body.published;
   if (typeof body.sortOrder === "number") data.sortOrder = body.sortOrder;
-  const course = await db.course.update({ where: { id }, data });
-  return NextResponse.json({ course });
+  data.updatedAt = new Date().toISOString();
+  try {
+    const course = await db.course.update({ where: { id }, data });
+    return NextResponse.json({ course });
+  } catch (e) {
+    console.error("course update error:", e);
+    return NextResponse.json({ error: "Could not update course." }, { status: 500 });
+  }
 }
 
 export async function DELETE(req: NextRequest) {
@@ -56,6 +62,11 @@ export async function DELETE(req: NextRequest) {
   const id = searchParams.get("id");
   if (!id)
     return NextResponse.json({ error: "Course id required." }, { status: 400 });
-  await db.course.delete({ where: { id } });
-  return NextResponse.json({ ok: true });
+  try {
+    await db.course.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    console.error("course delete error:", e);
+    return NextResponse.json({ error: "Could not delete course." }, { status: 500 });
+  }
 }
