@@ -310,7 +310,11 @@ function ChatTab({ videoId }: { videoId: string }) {
   // --- Mic recording ---
   const startRecording = async () => {
     try {
+      // Suppress security guard during mic permission (prevents false positive).
+      (window as unknown as { __suppressSecurity?: (v: boolean) => void }).__suppressSecurity?.(true);
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Re-enable security after permission granted.
+      (window as unknown as { __suppressSecurity?: (v: boolean) => void }).__suppressSecurity?.(false);
       const mr = new MediaRecorder(stream);
       audioChunksRef.current = [];
       mr.ondataavailable = (e) => {

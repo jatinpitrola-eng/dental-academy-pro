@@ -301,8 +301,10 @@ export function StudentVideo() {
                 controls so the student NEVER sees YouTube's UI.
               - For direct mp4: a native <video> with no controls. */}
           {isYouTube ? (
-            <div className="absolute inset-0">
-              <div id="yt-player-host" className="h-full w-full" />
+            <div className="absolute inset-0 overflow-hidden">
+              {/* Scale up the iframe so YouTube branding (logo, title bar)
+                  is pushed outside the visible area. */}
+              <div id="yt-player-host" className="absolute left-1/2 top-1/2 h-[140%] w-[140%] -translate-x-1/2 -translate-y-1/2" style={{ pointerEvents: "none" }} />
             </div>
           ) : (
             <video
