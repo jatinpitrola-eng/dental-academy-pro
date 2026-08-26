@@ -48,6 +48,7 @@ import {
   Check,
   Plus,
   Trash2,
+  Pencil,
   Power,
   Smartphone,
   Clock,
@@ -1151,6 +1152,26 @@ function CoursesTab() {
     await api(`/api/admin/videos?id=${id}`, { method: "DELETE" });
     load();
   };
+  const editCourse = async (c: CourseRow) => {
+    const title = prompt("Course title:", c.title);
+    if (title === null) return;
+    const description = prompt("Description:", c.description || "");
+    if (description === null) return;
+    await api("/api/admin/courses", {
+      method: "PATCH",
+      body: JSON.stringify({ id: c.id, title: title.trim(), description: description.trim() }),
+    });
+    load();
+  };
+  const editVideo = async (v: VideoRow) => {
+    const title = prompt("Video title:", v.title);
+    if (title === null) return;
+    await api("/api/admin/videos", {
+      method: "PATCH",
+      body: JSON.stringify({ id: v.id, title: title.trim() }),
+    });
+    load();
+  };
 
   if (loading)
     return (
@@ -1226,6 +1247,17 @@ function CoursesTab() {
                   <Button
                     size="sm"
                     variant="ghost"
+                    className="hover:bg-accent"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      editCourse(c);
+                    }}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
                     className="text-destructive hover:bg-destructive/10"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -1263,10 +1295,18 @@ function CoursesTab() {
                           <Button
                             size="sm"
                             variant="ghost"
+                            className="hover:bg-accent"
+                            onClick={() => editVideo(v)}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
                             className="text-destructive hover:bg-destructive/10"
                             onClick={() => delVideo(v.id)}
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
                       ))

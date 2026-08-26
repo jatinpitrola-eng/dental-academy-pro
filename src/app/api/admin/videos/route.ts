@@ -143,8 +143,14 @@ export async function PATCH(req: NextRequest) {
   if (typeof body.duration === "number") data.duration = body.duration;
   if (typeof body.sortOrder === "number") data.sortOrder = body.sortOrder;
   if (typeof body.courseId === "string") data.courseId = body.courseId;
-  const video = await db.video.update({ where: { id }, data });
-  return NextResponse.json({ video });
+  data.updatedAt = new Date().toISOString();
+  try {
+    const video = await db.video.update({ where: { id }, data });
+    return NextResponse.json({ video });
+  } catch (e) {
+    console.error("video update error:", e);
+    return NextResponse.json({ error: "Could not update video." }, { status: 500 });
+  }
 }
 
 export async function DELETE(req: NextRequest) {

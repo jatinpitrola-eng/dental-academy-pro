@@ -40,6 +40,7 @@ type SummaryData = {
   summary: string;
   keyPoints: string[];
   transcript: string | null;
+  autoNotes?: string;
   cached: boolean;
 };
 
@@ -111,6 +112,7 @@ function SummaryTab({ videoId }: { videoId: string }) {
   const [data, setData] = useState<SummaryData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -193,6 +195,39 @@ function SummaryTab({ videoId }: { videoId: string }) {
       <div className="prose prose-sm dark:prose-invert max-w-none rounded-xl border border-border/60 bg-card p-4">
         <MarkdownRenderer content={data.summary} />
       </div>
+
+      {data.autoNotes && (
+        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-sm font-medium text-emerald-700 dark:text-emerald-300">
+              <FileText className="h-4 w-4" />
+              Auto-Generated Notes (copyable)
+            </div>
+            <button
+              onClick={() => {
+                navigator.clipboard?.writeText(data.autoNotes || "").then(() => {
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                });
+              }}
+              className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground transition hover:bg-accent"
+            >
+              {copied ? (
+                <>
+                  <Check className="h-3 w-3" /> Copied
+                </>
+              ) : (
+                <>
+                  <Copy className="h-3 w-3" /> Copy notes
+                </>
+              )}
+            </button>
+          </div>
+          <pre className="max-h-80 overflow-y-auto whitespace-pre-wrap rounded-lg bg-background/50 p-3 text-xs leading-relaxed text-foreground">
+            {data.autoNotes}
+          </pre>
+        </div>
+      )}
 
       {data.transcript && (
         <details className="rounded-xl border border-border/60 bg-card p-4">

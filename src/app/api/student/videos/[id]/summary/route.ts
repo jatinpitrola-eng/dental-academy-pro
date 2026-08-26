@@ -126,13 +126,114 @@ KEY_POINTS:
     /* DB not available on Vercel cold start — ignore */
   }
 
+  // Generate auto-notes from transcript (copyable by student).
+  const autoNotes = generateAutoNotes(video.title, video.course.title, transcript, video.description);
+
   return NextResponse.json({
     summary,
     keyPoints,
     transcript,
+    autoNotes,
     cached: false,
     aiGenerated: usedAI,
   });
+}
+
+/**
+ * Generates copyable study notes from the video transcript.
+ * These notes are structured, easy to read, and can be copied by the student.
+ */
+function generateAutoNotes(
+  videoTitle: string,
+  courseTitle: string,
+  transcript: string | null,
+  description: string | null,
+): string {
+  const lines: string[] = [];
+
+  lines.push(`# ${videoTitle}`);
+  lines.push(`**Course:** ${courseTitle}`);
+  lines.push(`**Date:** ${new Date().toLocaleDateString()}`);
+  lines.push("");
+
+  if (description) {
+    lines.push(`## Overview`);
+    lines.push(description);
+    lines.push("");
+  }
+
+  if (transcript && transcript.length > 100) {
+    // Split transcript into sentences.
+    const sentences = transcript.match(/[^.!?]+[.!?]+/g) || [transcript];
+    const cleanSentences = sentences.map(s => s.trim()).filter(s => s.length > 20);
+
+    // Group sentences into "topics" (every 3-4 sentences = 1 topic).
+    lines.push(`## Key Points from the Lesson`);
+    lines.push("");
+
+    const topicSize = 3;
+    const maxTopics = Math.min(8, Math.ceil(cleanSentences.length / topicSize));
+
+    for (let i = 0; i < maxTopics; i++) {
+      const start = i * topicSize;
+      const end = Math.min(start + topicSize, cleanSentences.length);
+      const topicSentences = cleanSentences.slice(start, end);
+      if (topicSentences.length === 0) continue;
+
+      // Use first sentence as the heading (truncated).
+      const heading = topicSentences[0].slice(0, 60).trim();
+      lines.push(`### ${i + 1}. ${heading}${heading.length >= 60 ? "..." : ""}`);
+      lines.push(topicSentences.join(" "));
+      lines.push("");
+    }
+
+    // Important terms (extract dental keywords).
+    lines.push(`## Important Terms`);
+    lines.push("");
+    const dentalTerms = [
+      "enamel", "dentin", "pulp", "cementum", "periodontal", "gingiva",
+      "cavity", "caries", "restoration", "composite", "amalgam", "endodontic",
+      "root canal", "extraction", "implant", "crown", "bridge", "denture",
+      "occlusion", "malocclusion", "orthodontic", "bracket", "aligner",
+      "veneer", "bleaching", "scaling", "polishing", "anesthesia",
+      "calcium hydroxide", "gutta-percha", "apex", "foramen", "chamber",
+      "canal", "odontoblast", "ameloblast", "hydroxyapatite", "fluoride",
+    ];
+    const lowerTranscript = transcript.toLowerCase();
+    const foundTerms = dentalTerms.filter(t => lowerTranscript.includes(t));
+    if (foundTerms.length > 0) {
+      foundTerms.forEach(term => {
+        lines.push(`- **${term.charAt(0).toUpperCase() + term.slice(1)}**`);
+      });
+    } else {
+      lines.push("- Review the video for key dental terms");
+    }
+    lines.push("");
+
+    // Summary takeaway.
+    lines.push(`## Summary`);
+    lines.push("");
+    const topSentences = cleanSentences.slice(0, 3);
+    lines.push(topSentences.join(" "));
+    lines.push("");
+
+  } else {
+    lines.push(`## Study Notes`);
+    lines.push("");
+    lines.push(`This lesson covers **${videoTitle}** from the *${courseTitle}* course.`);
+    lines.push("");
+    lines.push(`### Key Points to Remember:`);
+    lines.push(`- Watch the full video for detailed explanations`);
+    lines.push(`- Take additional notes while watching`);
+    lines.push(`- Review the summary tab for key concepts`);
+    lines.push(`- Try the quiz to test your understanding`);
+    lines.push("");
+  }
+
+  lines.push(`---`);
+  lines.push(`*Auto-generated from video transcript. You can copy these notes for your study.*`);
+
+  return lines.join("\n");
 }
 
 /**
