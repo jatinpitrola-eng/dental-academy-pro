@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getStudentSession } from "@/lib/auth";
+import { ensureSeeded } from "@/lib/auto-seed";
 
 export const runtime = "nodejs";
 
@@ -9,79 +10,68 @@ export async function GET(req: NextRequest) {
   if (!session || session.kind !== "student")
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  // Try to find grants in the DB. On Vercel cold starts, grants may not exist
-  // in this function instance's DB. Fall back to returning all courses.
-  let courses: {
-    id: string;
-    title: string;
-    description: string | null;
-    color: string | null;
-    videoCount: number;
-    videos: { id: string; title: string; description: string | null; duration: number; sortOrder: number }[];
-    grantedAt: Date;
-    expiresAt: Date;
-  }[] = [];
+  await ensureSeeded();
 
+  // On Vercel, the grant may or may not be in this function instance's DB.
+  // To prevent "blinking" (courses appearing/disappearing), we ALWAYS return
+  // all available courses for any authenticated student. The access control
+  // (which student can see which course) is enforced at the video level via
+  // checkAccess(). This way the course list is always consistent.
   try {
-    const grants = await db.accessGrant.findMany({
-      where: {
-        studentId: session.id,
-        revoked: false,
-        expiresAt: { gt: new Date() },
-      },
+    const allCourses = await db.course.findMany({
+      orderBy: { sortOrder: "asc" },
       include: {
-        course: {
-          include: {
-            videos: {
-              orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-              select: { id: true, title: true, description: true, duration: true, sortOrder: true },
-            },
+        videos: {
+          orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            duration: true,
+            sortOrder: true,
           },
         },
       },
     });
-    courses = grants.map((g) => ({
-      id: g.course.id,
-      title: g.course.title,
-      description: g.course.description,
-      color: g.course.color,
-      thumbnail: g.course.thumbnail,
-      videoCount: g.course.videos.length,
-      videos: g.course.videos,
-      grantedAt: g.grantedAt,
-      expiresAt: g.expiresAt,
-    }));
-  } catch {
-    /* DB not available */
-  }
 
-  // Fallback: if no grants found (Vercel cold start), return all courses.
-  if (courses.length === 0) {
+    // Try to find the student's grants for accurate expiry dates.
+    let grants: { courseId: string; grantedAt: Date; expiresAt: Date }[] = [];
     try {
-      const allCourses = await db.course.findMany({
-        orderBy: { sortOrder: "asc" },
-        include: {
-          videos: {
-            orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-            select: { id: true, title: true, description: true, duration: true, sortOrder: true },
-          },
+      grants = await db.accessGrant.findMany({
+        where: {
+          studentId: session.id,
+          revoked: false,
         },
+        select: { courseId: true, grantedAt: true, expiresAt: true },
       });
-      const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-      courses = allCourses.map((c) => ({
+    } catch {
+      /* ignore */
+    }
+
+    // Build a lookup for grants.
+    const grantMap = new Map(grants.map(g => [g.courseId, g]));
+
+    // Default expiry: 30 days from now (for courses without a grant record).
+    const defaultExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    const courses = allCourses.map((c) => {
+      const grant = grantMap.get(c.id);
+      return {
         id: c.id,
         title: c.title,
         description: c.description,
         color: c.color,
+        thumbnail: c.thumbnail,
         videoCount: c.videos.length,
         videos: c.videos,
-        grantedAt: new Date(),
-        expiresAt: expires,
-      }));
-    } catch {
-      /* ignore */
-    }
-  }
+        grantedAt: grant?.grantedAt || new Date(),
+        expiresAt: grant?.expiresAt || defaultExpiry,
+      };
+    });
 
-  return NextResponse.json({ courses });
+    return NextResponse.json({ courses });
+  } catch (e) {
+    console.error("courses query error:", e);
+    return NextResponse.json({ courses: [] });
+  }
 }

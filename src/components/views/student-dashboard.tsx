@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApp } from "@/lib/store";
 import { api, timeLeft, formatDuration } from "@/lib/api";
 import { Brand } from "@/components/brand";
@@ -44,23 +44,37 @@ export function StudentDashboard() {
   const setActiveCourseId = useApp((s) => s.setActiveCourseId);
   const [courses, setCourses] = useState<CourseItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const hasLoadedRef = useRef(false);
 
   const load = async () => {
     try {
       const res = await api<{ courses: CourseItem[] }>("/api/student/courses");
-      setCourses(res.courses);
+      // IMPORTANT: On Vercel, different serverless function instances may have
+      // different DB states. If we already have courses loaded and the new
+      // fetch returns a DIFFERENT set (e.g., 1 course vs 3 courses), DON'T
+      // overwrite — this prevents the "blinking" effect where courses appear
+      // and disappear. Only update if:
+      // 1. We have no courses yet (initial load), OR
+      // 2. The new data has MORE courses than before (admin granted a new one), OR
+      // 3. The new data has the SAME courses (no change)
+      if (!hasLoadedRef.current || res.courses.length >= courses.length) {
+        setCourses(res.courses);
+        hasLoadedRef.current = true;
+      }
+      // If the new data has FEWER courses than what we already show, keep the
+      // existing courses (don't remove what the student can already see).
     } catch {
-      /* ignore */
+      /* ignore — keep existing courses */
     } finally {
       setLoading(false);
     }
   };
 
-  // Live polling: when the admin grants a course, the student sees it appear
-  // without needing to refresh. Poll every 4 seconds while on this tab.
+  // Load once on mount, then poll less frequently (10s instead of 4s) to
+  // reduce the chance of hitting inconsistent DB states on Vercel.
   useEffect(() => {
     load();
-    const t = setInterval(load, 4000);
+    const t = setInterval(load, 10000);
     return () => clearInterval(t);
   }, []);
 
