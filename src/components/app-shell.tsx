@@ -14,6 +14,7 @@ import { StudentCourse } from "./views/student-course";
 import { StudentVideo } from "./views/student-video";
 import { AdminDashboard } from "./views/admin-dashboard";
 import { SiteFooter } from "./site-footer";
+import { PwaInstallPrompt } from "./pwa-install-prompt";
 
 export function AppShell() {
   const view = useApp((s) => s.view);
@@ -96,6 +97,7 @@ export function AppShell() {
           <main className="flex w-full flex-1 flex-col">{renderView()}</main>
         </SecurityGuard>
         {!isStandaloneView && <SiteFooter />}
+        <PwaInstallPrompt />
       </div>
     </IntroGate>
   );
