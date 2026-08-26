@@ -3,6 +3,7 @@
 import { useApp } from "@/lib/store";
 import { Brand } from "@/components/brand";
 import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
 import {
   ShieldCheck,
   Lock,
@@ -165,6 +166,32 @@ export function LandingView() {
               <p className="mt-1 text-sm text-muted-foreground">{f.desc}</p>
             </div>
           ))}
+        </div>
+
+        {/* DOWNLOAD APP SECTION */}
+        <div className="mt-20 overflow-hidden rounded-3xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 via-teal-500/5 to-transparent p-6 sm:p-8">
+          <div className="flex flex-col items-center gap-4 sm:flex-row sm:gap-6">
+            <div className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/20">
+              <Download className="h-8 w-8" />
+            </div>
+            <div className="flex-1 text-center sm:text-left">
+              <h3 className="text-xl font-bold">Download the App</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Install Dental Academy Pro on your phone or computer for quick
+                access, full screen experience, and offline support.
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                const event = new Event("trigger-pwa-install");
+                window.dispatchEvent(event);
+              }}
+              className="flex shrink-0 items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/20 transition-all hover:scale-105 active:scale-95"
+            >
+              <Download className="h-4 w-4" />
+              Download Now
+            </button>
+          </div>
         </div>
 
         {/* how it works */}
