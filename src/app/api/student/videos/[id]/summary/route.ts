@@ -244,7 +244,7 @@ A detailed transcript-based summary will be available once the video is played. 
 ---
 *Transcript not available for this video. For AI-powered analysis, use the app in the sandbox environment.*`;
 
-  keyPoints = [
+  const fallbackKeyPoints = [
     `Topic: ${videoTitle}`,
     `Course: ${courseTitle}`,
     videoDescription
@@ -252,5 +252,5 @@ A detailed transcript-based summary will be available once the video is played. 
       : "Watch the video for full content",
   ];
 
-  return { summary, keyPoints };
+  return { summary, keyPoints: fallbackKeyPoints };
 }
