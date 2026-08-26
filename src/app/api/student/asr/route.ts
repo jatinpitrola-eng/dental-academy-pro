@@ -17,8 +17,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "audio required" }, { status: 400 });
 
   try {
-    const ZAI = (await import("z-ai-web-dev-sdk")).default;
-    const zai = await ZAI.create();
+    const { getZAI } = await import("@/lib/ai");
+    const zai = await getZAI();
     const response = await zai.audio.asr.create({ file_base64: base64 });
     const text = (response.text || "").trim();
     return NextResponse.json({ text });

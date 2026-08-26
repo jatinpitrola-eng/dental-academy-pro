@@ -1,9 +1,39 @@
 import ZAI from "z-ai-web-dev-sdk";
+import { writeFileSync, existsSync, mkdirSync } from "fs";
+import { join } from "path";
 
 let zaiInstance: Awaited<ReturnType<typeof ZAI.create>> | null = null;
 
+/**
+ * Ensures the .z-ai-config file exists. On Vercel, the file isn't deployed
+ * (it's in .gitignore), so we reconstruct it from the Z_AI_CONFIG env var
+ * and write it to /tmp (which is writable on serverless).
+ */
+function ensureConfigFile() {
+  const configPath = "/tmp/.z-ai-config";
+  if (existsSync(configPath)) return;
+  // Try to read from env var (set on Vercel).
+  const configContent = process.env.Z_AI_CONFIG;
+  if (configContent) {
+    try {
+      writeFileSync(configPath, configContent);
+      return;
+    } catch {
+      /* ignore */
+    }
+  }
+  // Fallback: check if the project-level config exists (local dev).
+  const localConfig = join(process.cwd(), ".z-ai-config");
+  if (existsSync(localConfig)) return;
+}
+
 export async function getZAI() {
   if (!zaiInstance) {
+    ensureConfigFile();
+    // Set HOME to /tmp so the SDK finds /tmp/.z-ai-config
+    if (process.env.Z_AI_CONFIG) {
+      process.env.HOME = "/tmp";
+    }
     zaiInstance = await ZAI.create();
   }
   return zaiInstance;

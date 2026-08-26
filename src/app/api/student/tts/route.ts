@@ -35,8 +35,9 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const ZAI = (await import("z-ai-web-dev-sdk")).default;
-    const zai = await ZAI.create();
+    // Ensure the z-ai config file exists (Vercel cold-start fix).
+    const { getZAI } = await import("@/lib/ai");
+    const zai = await getZAI();
     const response = await zai.audio.tts.create({
       input: text,
       voice,
