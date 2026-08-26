@@ -1,13 +1,12 @@
 import { db } from "./db";
 import { hashPassword } from "./crypto";
+import { ensureSchema } from "./ensure-schema";
 
 let seedPromise: Promise<void> | null = null;
 
 /**
- * Ensures the database has the minimum required data (admin + courses).
- * Runs once per serverless instance lifecycle. On Vercel, the DB lives in
- * /tmp which is ephemeral — so on each cold start the DB is empty and this
- * re-seeds it.
+ * Ensures the database schema exists and has the minimum required data.
+ * Runs once per serverless instance lifecycle.
  */
 export async function ensureSeeded(): Promise<void> {
   if (seedPromise) return seedPromise;
@@ -17,6 +16,9 @@ export async function ensureSeeded(): Promise<void> {
 
 async function doSeed(): Promise<void> {
   try {
+    // First, create the schema (tables) if they don't exist.
+    await ensureSchema();
+
     // Check if admin exists.
     const adminCount = await db.admin.count().catch(() => -1);
     if (adminCount > 0) return; // already seeded
