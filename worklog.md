@@ -237,3 +237,23 @@ Stage Summary:
 - Course creation + display WORKS on live: https://my-project-six-self-46.vercel.app
 - All admin features functional: courses (create/list/delete), videos (add via YouTube/URL/upload), students (list/activate/disable), OTP approvals, notifications, activity logs
 - Data persists on Turso (survives cold starts)
+
+---
+Task ID: 11
+Agent: main (Z.ai Code)
+Task: Fix YouTube branding visible + mic/notification permission disables account + only show granted courses.
+
+Work Log:
+- Fix 1: YouTube branding hidden — iframe scaled to 140% (h-[140%] w-[140%]) so YouTube logo/title bar is pushed outside visible area. Student sees only the video content, no YouTube UI.
+- Fix 2: Mic/notification permission false positive — added suppressRef flag to SecurityGuard. AI panel calls window.__suppressSecurity(true) before getUserMedia() and Notification.requestPermission(), then __suppressSecurity(false) after. This prevents the blur event from triggering a false screenshot violation when the browser shows the permission dialog.
+- Fix 3: Only show granted courses — student courses API now checks AccessGrant table for the student's grants and only returns courses that have active grants. No more showing all courses to every student.
+- Fix 4: Grant creation — the upsert with compound key (studentId_courseId) wasn't working because buildWhere didn't handle compound keys. Fixed buildWhere to detect compound keys and split them into individual conditions.
+- Verified: Admin approve + grant course → student sees ONLY that course (1 course, 3 videos). Mic permission doesn't disable account. YouTube branding hidden.
+
+Stage Summary:
+- PWA complete. All features working:
+  ✅ Admin: login, create courses/videos, approve OTP with course selection, manage students, notifications
+  ✅ Student: register, login with OTP, see ONLY granted courses, watch videos (no YouTube branding), AI chat/summary/quiz/notes
+  ✅ Security: screenshot detection (Win+Shift+S, PrintScreen, Cmd+Shift+3/4/5), screen recording detection, but NO false positives on mic/notification permission
+  ✅ Data: persists on Turso (survives cold starts)
+  ✅ Voice: mic input + TTS output (no false disable)
