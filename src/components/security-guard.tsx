@@ -4,23 +4,24 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 
 /**
- * SecurityGuard — SIMPLE + RELIABLE screenshot protection.
+ * SecurityGuard — SIMPLE, NO FALSE POSITIVES.
  *
- * Only triggers on ACTUAL screenshot key presses:
- * - Win+Shift+S (Snipping Tool)
+ * ONLY triggers on actual screenshot key presses:
  * - PrintScreen / Alt+PrintScreen
  * - Cmd+Shift+3/4/5/6 (macOS)
+ * - F12 / Ctrl+Shift+I/J/C (DevTools)
  *
  * Does NOT trigger on:
- * - Mic permission dialog
- * - Notification permission dialog
- * - Sound/TTS playback
- * - Alt+Tab (regular app switching)
- * - Tab switching
- * - Window resize
- * - Periodic clipboard checks (removed — caused false positives)
+ * - Mic/sound/notification permission dialogs
+ * - Alt+Tab, tab switching, window blur
+ * - TTS playback, AI chat
+ * - Any normal browser activity
  *
- * On trigger: black screen + pause videos + report → account disabled.
+ * Why no blur detection: Win+Shift+S causes blur, but so do 100 other
+ * things (Alt+Tab, clicking another window, notification popup, etc).
+ * Blur detection causes too many false account disables.
+ * Instead: we only block the actual keyboard shortcuts that browsers
+ * can intercept.
  */
 export function SecurityGuard({
   studentId,
@@ -43,7 +44,6 @@ export function SecurityGuard({
       reportedRef.current = true;
       setViolationMsg(`${type}: ${detail}`);
       setBlackedOut(true);
-      // Pause all videos.
       document.querySelectorAll("video").forEach((v) => {
         try { v.pause(); } catch { /* ignore */ }
       });
@@ -64,86 +64,23 @@ export function SecurityGuard({
       setTimeout(() => { window.location.href = "/"; }, 2000);
     };
 
-    // ==========================================
-    // WINDOW BLUR — catches Win+Shift+S (which steals focus from browser)
-    // BUT: we wait 800ms before reporting. If the window regains focus
-    // quickly (< 800ms), it was likely a UI flicker, not a screenshot.
-    // We also check the clipboard on focus return — if an image is found,
-    // it was definitely a screenshot.
-    // ==========================================
-    let blurTimeout: ReturnType<typeof setTimeout> | null = null;
-    const onBlur = () => {
-      if (!studentId) return;
-      // Show blackout immediately.
-      setBlackedOut(true);
-      // Pause all videos.
-      document.querySelectorAll("video").forEach((v) => {
-        try { v.pause(); } catch { /* ignore */ }
-      });
-      document.querySelectorAll("iframe").forEach((f) => {
-        try {
-          f.contentWindow?.postMessage(
-            JSON.stringify({ event: "command", func: "pauseVideo" }),
-            "*",
-          );
-        } catch { /* ignore */ }
-      });
-      // Wait 800ms before reporting — distinguishes a real screenshot
-      // (Win+Shift+S keeps focus away) from a UI flicker.
-      blurTimeout = setTimeout(async () => {
-        // Check clipboard for image — confirms it was a screenshot.
-        let hasImage = false;
-        try {
-          if (navigator.clipboard && navigator.clipboard.read) {
-            const items = await navigator.clipboard.read();
-            hasImage = items.some((item: { types: string[] }) =>
-              item.types.some((t) => t.startsWith("image/")),
-            );
-          }
-        } catch { /* permission denied — assume screenshot anyway */ }
-        // Report if blur lasted > 800ms (real screenshot tool).
-        report("screenshot", hasImage
-          ? "Image found in clipboard after window blur (screenshot confirmed)"
-          : "Window focus lost for >800ms — possible Win+Shift+S or screen recording");
-      }, 800);
-    };
-
-    const onFocus = () => {
-      // Cancel pending violation report (was a quick focus flicker).
-      if (blurTimeout) { clearTimeout(blurTimeout); blurTimeout = null; }
-      // Remove blackout (no screenshot was taken).
-      if (!reportedRef.current) setBlackedOut(false);
-    };
-
-    // ==========================================
-    // KEYBOARD — screenshot + devtools shortcuts
-    // ==========================================
+    // KEYBOARD ONLY — screenshot + devtools shortcuts
     const onKey = (e: KeyboardEvent) => {
       const k = e.key.toLowerCase();
 
-      // --- WINDOWS screenshots ---
-      // Win+Shift+S (Snipping Tool)
-      if (e.shiftKey && (e.metaKey || e.ctrlKey) && k === "s") {
-        e.preventDefault(); e.stopPropagation();
-        report("screenshot", "Win+Shift+S (Snipping Tool) detected");
-        return;
-      }
-      // PrintScreen / Alt+PrintScreen
+      // PrintScreen
       if (k === "printscreen" || e.code === "PrintScreen" || e.keyCode === 44) {
         e.preventDefault(); e.stopPropagation();
         report("screenshot", "PrintScreen key pressed");
         return;
       }
-
-      // --- MAC screenshots ---
-      // Cmd+Shift+3/4/5/6
+      // macOS Cmd+Shift+3/4/5/6
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && ["3", "4", "5", "6"].includes(e.key)) {
         e.preventDefault(); e.stopPropagation();
         report("screenshot", `macOS Cmd+Shift+${e.key} screenshot detected`);
         return;
       }
-
-      // --- DEVTOOLS ---
+      // DevTools
       if (e.key === "F12") {
         e.preventDefault(); e.stopPropagation();
         report("devtools", "F12 (DevTools) pressed");
@@ -154,25 +91,20 @@ export function SecurityGuard({
         report("devtools", `DevTools shortcut Ctrl+Shift+${k.toUpperCase()}`);
         return;
       }
-
-      // --- BLOCK copy/save/print/source (no report, just block) ---
+      // Block save/print/source
       if ((e.ctrlKey || e.metaKey) && ["u", "s", "p"].includes(k)) {
         e.preventDefault(); e.stopPropagation();
-        return;
       }
-      // Block copy only on video pages (not in chat/notes inputs)
+      // Block copy outside inputs
       if ((e.ctrlKey || e.metaKey) && k === "c") {
         const target = e.target as HTMLElement;
         if (target.tagName !== "INPUT" && target.tagName !== "TEXTAREA") {
           e.preventDefault();
         }
-        return;
       }
     };
 
-    // ==========================================
-    // COPY/CUT/CONTEXT MENU blocking (no report, just block)
-    // ==========================================
+    // COPY/CONTEXT MENU blocking
     const onCopy = (e: ClipboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.tagName !== "INPUT" && target.tagName !== "TEXTAREA") {
@@ -186,37 +118,15 @@ export function SecurityGuard({
       }
     };
 
-    // ==========================================
-    // DISPLAY CAPTURE PERMISSION detection
-    // Only checks 'display-capture' (NOT mic, NOT notification)
-    // ==========================================
-    let permCheck: ReturnType<typeof setInterval> | null = null;
-    const checkCapture = async () => {
-      try {
-        // @ts-expect-error - 'display-capture' is non-standard
-        const p = await navigator.permissions?.query?.({ name: "display-capture" });
-        if (p && p.state === "granted") {
-          report("screen_record", "Display capture permission granted");
-        }
-      } catch { /* not supported — ignore */ }
-    };
-    // Only check once on mount, not periodically.
-    checkCapture();
-
-    // Register listeners.
-    window.addEventListener("blur", onBlur);
-    window.addEventListener("focus", onFocus);
+    // Register listeners
     document.addEventListener("keydown", onKey, { capture: true });
     document.addEventListener("copy", onCopy);
     document.addEventListener("contextmenu", onContext);
 
     return () => {
-      window.removeEventListener("blur", onBlur);
-      window.removeEventListener("focus", onFocus);
       document.removeEventListener("keydown", onKey, { capture: true } as EventListenerOptions);
       document.removeEventListener("copy", onCopy);
       document.removeEventListener("contextmenu", onContext);
-      if (permCheck) clearInterval(permCheck);
     };
   }, [studentId, studentName]);
 
