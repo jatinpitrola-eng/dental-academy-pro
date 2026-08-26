@@ -592,7 +592,7 @@ type StudentRow = {
     revoked: boolean;
     course: { title: string; color: string | null };
   }[];
-  _count: { violations: number };
+  _count?: { violations: number };
 };
 
 function StudentsTab() {
@@ -673,11 +673,11 @@ function StudentsTab() {
                     <div className="flex items-center gap-2">
                       <span className="font-semibold">{s.name}</span>
                       <StatusBadge status={s.status} />
-                      {s._count.violations > 0 && (
+                      {(s._count?.violations ?? 0) > 0 && (
                         <Badge variant="destructive" className="gap-1">
                           <ShieldAlert className="h-3 w-3" />
-                          {s._count.violations} violation
-                          {s._count.violations > 1 ? "s" : ""}
+                          {s._count?.violations ?? 0} violation
+                          {(s._count?.violations ?? 0) > 1 ? "s" : ""}
                         </Badge>
                       )}
                     </div>
@@ -1096,7 +1096,7 @@ type CourseRow = {
   color: string | null;
   published: boolean;
   sortOrder: number;
-  _count: { videos: number; grants: number };
+  _count?: { videos: number; grants: number };
 };
 type VideoRow = {
   id: string;
@@ -1104,7 +1104,7 @@ type VideoRow = {
   sourceType: string;
   sourceUrl: string;
   duration: number;
-  course: { title: string; color: string | null };
+  course?: { title: string; color: string | null };
 };
 
 function CoursesTab() {
@@ -1173,11 +1173,20 @@ function CoursesTab() {
       </div>
 
       <div className="space-y-3">
+        {courses.length === 0 && (
+          <Card className="border-dashed">
+            <CardContent className="py-10 text-center text-sm text-muted-foreground">
+              No courses yet. Click "New course" to create one.
+            </CardContent>
+          </Card>
+        )}
         {courses.map((c) => {
           const open = expandedCourse === c.id;
           const vids = videos.filter(
-            (v) => v.course.title === c.title,
+            (v) => v.course?.title === c.title,
           );
+          const videoCount = c._count?.videos ?? vids.length;
+          const grantCount = c._count?.grants ?? 0;
           return (
             <Card key={c.id} className="border-border/60">
               <CardContent className="p-4">
@@ -1201,11 +1210,11 @@ function CoursesTab() {
                   </div>
                   <Badge variant="secondary" className="gap-1">
                     <Video className="h-3 w-3" />
-                    {c._count.videos} videos
+                    {videoCount} videos
                   </Badge>
                   <Badge variant="outline" className="gap-1">
                     <Users className="h-3 w-3" />
-                    {c._count.grants} students
+                    {grantCount} students
                   </Badge>
                   <Button
                     size="sm"
