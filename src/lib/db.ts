@@ -13,12 +13,19 @@ const TURSO_AUTH_TOKEN =
 
 function createPrismaClient(): PrismaClient {
   // Always use Turso (libsql) for the production app.
-  const libsql = createClient({
-    url: TURSO_URL,
-    authToken: TURSO_AUTH_TOKEN,
-  });
-  const adapter = new PrismaLibSQL(libsql);
-  return new PrismaClient({ adapter, log: ["error", "warn"] });
+  console.log("[DB] Creating PrismaClient with Turso adapter, URL:", TURSO_URL.slice(0, 30) + "...");
+  try {
+    const libsql = createClient({
+      url: TURSO_URL,
+      authToken: TURSO_AUTH_TOKEN,
+    });
+    const adapter = new PrismaLibSQL(libsql);
+    console.log("[DB] Adapter created successfully");
+    return new PrismaClient({ adapter, log: ["error", "warn"] });
+  } catch (e) {
+    console.error("[DB] Adapter creation FAILED:", e);
+    throw e;
+  }
 }
 
 export const db = globalForPrisma.prisma ?? createPrismaClient();
