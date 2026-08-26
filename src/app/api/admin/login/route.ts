@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { loginAdmin, createAdminSession, ADMIN_COOKIE } from "@/lib/auth";
+import { ensureSeeded } from "@/lib/auto-seed";
 
 export const runtime = "nodejs";
 
@@ -8,6 +9,9 @@ export const runtime = "nodejs";
 // correct secretKey is presented in the body alongside credentials.
 export async function POST(req: NextRequest) {
   try {
+    // Ensure the DB schema + seed data exist BEFORE any DB query.
+    await ensureSeeded();
+
     const body = await req.json().catch(() => ({}));
     const secretKey = String(body.secretKey || "").trim();
     const email = String(body.email || body.username || "").trim();
