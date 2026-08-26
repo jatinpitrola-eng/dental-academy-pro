@@ -161,3 +161,4 @@ export async function loginAdmin(
   if (!verifyPassword(password, admin.passwordHash)) return null;
   return { id: admin.id, username: admin.username, name: admin.name };
 }
+// trigger rebuild Wed Aug 26 05:21:09 UTC 2026
