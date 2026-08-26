@@ -3,6 +3,7 @@
 import { useApp } from "@/lib/store";
 import { Brand } from "@/components/brand";
 import { Button } from "@/components/ui/button";
+import { useEffect, useState } from "react";
 import { Download } from "lucide-react";
 import {
   ShieldCheck,
@@ -20,6 +21,24 @@ import {
 
 export function LandingView() {
   const setView = useApp((s) => s.setView);
+  const [deferredPrompt, setDeferredPrompt] = useState<{ prompt: () => Promise<void> } | null>(null);
+
+  // Capture the native install prompt as soon as it's available.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e as unknown as { prompt: () => Promise<void> });
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  const handleInstall = async () => {
+    if (deferredPrompt) {
+      await deferredPrompt.prompt();
+      setDeferredPrompt(null);
+    }
+  };
 
   return (
     <div className="relative overflow-hidden">
@@ -182,10 +201,7 @@ export function LandingView() {
               </p>
             </div>
             <button
-              onClick={() => {
-                const event = new Event("trigger-pwa-install");
-                window.dispatchEvent(event);
-              }}
+              onClick={handleInstall}
               className="flex shrink-0 items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/20 transition-all hover:scale-105 active:scale-95"
             >
               <Download className="h-4 w-4" />
