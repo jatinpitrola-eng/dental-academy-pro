@@ -4,7 +4,6 @@ import { getStudentSession } from "@/lib/auth";
 
 export const runtime = "nodejs";
 // LLM calls can take a while + we fetch transcripts over the network.
-export const maxDuration = 60;
 
 // GET — returns the cached summary, or generates one on demand.
 export async function GET(

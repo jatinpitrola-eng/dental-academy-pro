@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getStudentSession } from "@/lib/auth";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
 
 // POST /api/student/asr
 // Body: { audio: "<base64-encoded audio>" }

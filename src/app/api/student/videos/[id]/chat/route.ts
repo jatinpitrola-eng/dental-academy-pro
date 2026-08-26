@@ -3,7 +3,6 @@ import { db } from "@/lib/db";
 import { getStudentSession } from "@/lib/auth";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
 
 // GET — load conversation history for this video.
 export async function GET(

@@ -3,7 +3,6 @@ import { db } from "@/lib/db";
 import { getStudentSession } from "@/lib/auth";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
 
 // Generate a 5-question quiz about this video. Questions are AI-generated and
 // cached in memory per video for 10 minutes (so all students see the same quiz
