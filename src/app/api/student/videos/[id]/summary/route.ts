@@ -216,12 +216,12 @@ The full transcript is available below for reference.
 *Summary generated from video transcript. For a more detailed AI analysis, use the app in the sandbox environment.*`;
 
     // Generate key points from top sentences.
-    keyPoints = top.slice(0, 5).map(t => {
+    const extractedKeyPoints = top.slice(0, 5).map(t => {
       const s = t.sentence;
       return s.length > 80 ? s.slice(0, 77) + "..." : s;
     });
 
-    return { summary, keyPoints };
+    return { summary, keyPoints: extractedKeyPoints };
   }
 
   // Fallback: no transcript — use video title + description.
