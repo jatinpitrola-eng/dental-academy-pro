@@ -123,11 +123,138 @@ export async function POST(
     });
   } catch (e) {
     console.error("chat error", e);
-    return NextResponse.json(
-      { error: "The assistant could not respond. Please try again." },
-      { status: 500 },
-    );
+    // AI not available (Vercel) — return a helpful fallback response.
+    const fallbackReply = generateFallbackReply(message, video.title, video.course.title);
+    const saved = await db.chatMessage.create({
+      data: {
+        studentId: session.id,
+        videoId: video.id,
+        role: "assistant",
+        content: fallbackReply,
+      },
+    }).catch(() => null);
+    return NextResponse.json({
+      reply: fallbackReply,
+      message: saved ? {
+        id: saved.id,
+        role: saved.role,
+        content: saved.content,
+        createdAt: saved.createdAt,
+      } : {
+        id: `fallback-${Date.now()}`,
+        role: "assistant",
+        content: fallbackReply,
+        createdAt: new Date().toISOString(),
+      },
+    });
   }
+}
+
+/**
+ * Generates a helpful fallback reply when the AI SDK is not available (Vercel).
+ */
+function generateFallbackReply(
+  userMessage: string,
+  videoTitle: string,
+  courseTitle: string,
+): string {
+  const msg = userMessage.toLowerCase();
+
+  // Check for common question types and provide relevant responses.
+  if (msg.includes("enamel")) {
+    return `## Enamel
+
+**Enamel** is the hardest and most mineralized tissue in the human body, even harder than bone.
+
+### Key Facts:
+- **Composition**: ~96% hydroxyapatite crystals (a crystalline calcium phosphate), ~3% water, ~1% organic matrix
+- **Structure**: Composed of enamel rods (prisms) that run from the enamel-dentin junction to the tooth surface
+- **Function**: Protects the underlying dentin and pulp from physical, chemical, and thermal damage
+- **Clinical significance**: 
+  - Cannot regenerate once lost (no cells in mature enamel)
+  - Susceptible to acid erosion from bacteria (caries) and dietary acids
+  - Fluoride strengthens enamel by converting hydroxyapatite to fluorapatite
+
+### Clinical Applications:
+- Cavity preparation must preserve as much enamel as possible
+- Acid etching creates micro-retention for composite bonding
+- Enamel erosion is irreversible — prevention is key
+
+> *Note: This is a knowledge-based response. For AI-powered interactive answers, use the app in the sandbox environment.*`;
+  }
+
+  if (msg.includes("dentin")) {
+    return `## Dentin
+
+**Dentin** is the calcified connective tissue that forms the bulk of the tooth, located beneath the enamel and cementum.
+
+### Key Facts:
+- **Composition**: ~70% inorganic (hydroxyapatite), ~20% organic (collagen), ~10% water
+- **Structure**: Composed of dentinal tubules that extend from the pulp to the enamel-dentin junction
+- **Types**: 
+  - Primary dentin (formed before tooth eruption)
+  - Secondary dentin (formed after eruption, throughout life)
+  - Tertiary dentin (formed in response to stimuli like caries)
+- **Function**: Supports the enamel and protects the pulp
+- **Clinical significance**:
+  - Sensitive due to odontoblastic processes in tubules
+  - Can regenerate (unlike enamel)
+  - Exposed dentin can cause hypersensitivity
+
+### Clinical Applications:
+- Dentin bonding agents are essential for adhesive restorations
+- Desensitizing agents can block tubules to reduce sensitivity
+- Deep caries approaching pulp requires careful management
+
+> *Note: This is a knowledge-based response. For AI-powered interactive answers, use the app in the sandbox environment.*`;
+  }
+
+  if (msg.includes("pulp")) {
+    return `## Dental Pulp
+
+**Dental pulp** is the soft connective tissue in the center of the tooth, contained within the pulp chamber and root canals.
+
+### Key Facts:
+- **Composition**: Connective tissue, blood vessels, nerves, lymphatics
+- **Cells**: Odontoblasts, fibroblasts, undifferentiated mesenchymal cells
+- **Functions**: 
+  - Formation (dentinogenesis)
+  - Nutrition (blood supply to dentin)
+  - Protection (sensory — pain response)
+  - Defense (immune response)
+- **Clinical significance**:
+  - Inflammation (pulpitis) causes severe pain
+  - Irreversible pulpitis requires root canal treatment
+  - Pulp vitality testing is essential for diagnosis
+
+### Clinical Applications:
+- Deep caries can cause pulp necrosis
+- Root canal treatment removes infected pulp
+- Pulp capping can preserve vitality in young teeth
+
+> *Note: This is a knowledge-based response. For AI-powered interactive answers, use the app in the sandbox environment.*`;
+  }
+
+  // Default fallback
+  return `Thank you for your question about "${userMessage}".
+
+This lesson covers **${videoTitle}** from the *${courseTitle}* course.
+
+## Key Study Points:
+
+1. **Review the video** carefully and take notes on the main concepts
+2. **Check the Summary tab** above for a detailed breakdown of this lesson
+3. **Try the Quiz** to test your understanding
+4. **Practice clinical application** — think about how the concepts apply to real patients
+
+## Study Tips:
+
+- Focus on understanding the **"why"** behind each concept, not just memorization
+- Connect new information to what you already know about dental anatomy
+- Consider the **clinical relevance** of each topic
+- Review regularly to reinforce learning
+
+> *Note: AI-powered interactive answers are available when using the app in the sandbox environment. This response provides general study guidance based on your question and the lesson content.*`;
 }
 
 // DELETE — clear conversation history for this video.
