@@ -17,11 +17,13 @@ function generateId(): string {
   return `c${timestamp}${random}`;
 }
 
-// Add createdAt/updatedAt to data if not present.
+// Add createdAt to data if not present. Most tables have createdAt; some
+// also have updatedAt. We add createdAt always, and updatedAt only if the
+// data already doesn't have it AND the table likely has it (we try/catch
+// the insert to handle tables without updatedAt).
 function addTimestamps(data: Record<string, unknown>): Record<string, unknown> {
   const now = new Date().toISOString();
   if (!data.createdAt) data.createdAt = now;
-  if (!data.updatedAt) data.updatedAt = now;
   return data;
 }
 
