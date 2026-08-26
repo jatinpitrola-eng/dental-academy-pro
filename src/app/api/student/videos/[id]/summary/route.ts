@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getStudentSession } from "@/lib/auth";
-import { llmComplete, DENTAL_EXPERT_SYSTEM } from "@/lib/ai";
-import { fetchYoutubeTranscript } from "@/lib/transcript";
 
 export const runtime = "nodejs";
 // LLM calls can take a while + we fetch transcripts over the network.
@@ -58,6 +56,7 @@ export async function GET(
   // Otherwise generate a fresh summary.
   let transcript: string | null = null;
   if (video.youtubeId) {
+    const { fetchYoutubeTranscript } = await import("@/lib/transcript");
     transcript = await fetchYoutubeTranscript(video.youtubeId);
   }
 
@@ -100,6 +99,7 @@ KEY_POINTS:
 ["point 1", "point 2", ...]`;
 
   try {
+    const { llmComplete, DENTAL_EXPERT_SYSTEM } = await import("@/lib/ai");
     const raw = await llmComplete(DENTAL_EXPERT_SYSTEM, prompt);
 
     // Parse the two sections.

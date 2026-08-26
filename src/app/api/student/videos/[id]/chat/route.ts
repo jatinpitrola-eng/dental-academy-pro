@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getStudentSession } from "@/lib/auth";
-import { llmChat, DENTAL_EXPERT_SYSTEM } from "@/lib/ai";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -100,8 +99,6 @@ export async function POST(
     const s = summary.summary.slice(0, 1500);
     contextBits.push(`Lesson summary:\n${s}`);
   }
-  // NOTE: we deliberately do NOT send the transcript (too long, slows the LLM).
-  const system = `${DENTAL_EXPERT_SYSTEM}\n\n--- VIDEO CONTEXT ---\n${contextBits.join("\n\n")}`;
 
   // Load recent history — only last 6 messages for speed.
   const historyRows = await db.chatMessage.findMany({
@@ -126,6 +123,9 @@ export async function POST(
   });
 
   try {
+    // Lazy-import AI module to avoid build-time issues on Vercel.
+    const { llmChat, DENTAL_EXPERT_SYSTEM } = await import("@/lib/ai");
+    const system = `${DENTAL_EXPERT_SYSTEM}\n\n--- VIDEO CONTEXT ---\n${contextBits.join("\n\n")}`;
     const reply = await llmChat(system, history, message);
     // Save the AI reply.
     const saved = await db.chatMessage.create({

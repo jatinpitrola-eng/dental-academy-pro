@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getStudentSession } from "@/lib/auth";
-import { llmComplete, DENTAL_EXPERT_SYSTEM } from "@/lib/ai";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -93,6 +92,7 @@ Respond with ONLY valid JSON in this exact format (no markdown fences):
 }`;
 
   try {
+    const { llmComplete, DENTAL_EXPERT_SYSTEM } = await import("@/lib/ai");
     const raw = await llmComplete(DENTAL_EXPERT_SYSTEM, prompt);
     // Extract JSON from the response (in case the model wrapped it in fences).
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
