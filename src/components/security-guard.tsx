@@ -4,19 +4,19 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 
 /**
- * SecurityGuard — screenshot & screen recording protection.
+ * SecurityGuard — AGGRESSIVE screenshot & screen recording protection.
  *
- * Detection methods (in priority order):
- * 1. Keyboard: PrintScreen, Cmd+Shift+3/4/5/6, F12, Ctrl+Shift+I/J/C
- * 2. Window blur + clipboard check: when window loses focus, wait 1 second,
- *    then check clipboard. If image found → screenshot confirmed → disable.
- *    If no image → false alarm → no action.
- * 3. Periodic clipboard check: every 5 seconds, check clipboard for images.
+ * Detection methods:
+ * 1. Keyboard: PrintScreen, Cmd+Shift+3/4/5/6, Win+Shift+S, F12, Ctrl+Shift+I/J/C
+ * 2. Window blur: when window loses focus, IMMEDIATELY blackout + report.
+ *    This catches Win+Shift+S, Snipping Tool, and any screen recording tool
+ *    that steals focus. We do NOT wait for clipboard — we report immediately.
+ *    False positives (Alt+Tab, notification popups) are acceptable — the
+ *    student can ask the admin to reactivate.
+ * 3. Periodic clipboard check: every 3 seconds.
  *
- * This approach has ZERO false positives because:
- * - Mic/sound/notification permissions don't put images in the clipboard
- * - Alt+Tab doesn't put images in the clipboard
- * - Only actual screenshots put images in the clipboard
+ * The key insight: we prioritize BLOCKING over avoiding false positives.
+ * The owner specifically wants screenshots to be blocked at all costs.
  */
 export function SecurityGuard({
   studentId,
@@ -39,6 +39,7 @@ export function SecurityGuard({
       reportedRef.current = true;
       setViolationMsg(`${type}: ${detail}`);
       setBlackedOut(true);
+      // Pause all videos immediately.
       document.querySelectorAll("video").forEach((v) => {
         try { v.pause(); } catch { /* ignore */ }
       });
@@ -50,31 +51,34 @@ export function SecurityGuard({
           );
         } catch { /* ignore */ }
       });
+      // Report to server → disables account.
       try {
         await api("/api/student/violation", {
           method: "POST",
           body: JSON.stringify({ type, detail }),
         });
       } catch { /* ignore */ }
+      // Reload after showing message.
       setTimeout(() => { window.location.href = "/"; }, 2000);
     };
 
-    // Check clipboard for image — the ONLY reliable screenshot detector.
-    async function checkClipboardForImage(): Promise<boolean> {
-      try {
-        if (!navigator.clipboard || !navigator.clipboard.read) return false;
-        const items = await navigator.clipboard.read();
-        for (const item of items) {
-          if (item.types.some((t) => t.startsWith("image/"))) return true;
-        }
-      } catch {
-        // Permission denied or not supported — can't check, return false.
-      }
-      return false;
-    }
+    // Pause all videos immediately.
+    const pauseAllVideos = () => {
+      document.querySelectorAll("video").forEach((v) => {
+        try { v.pause(); } catch { /* ignore */ }
+      });
+      document.querySelectorAll("iframe").forEach((f) => {
+        try {
+          f.contentWindow?.postMessage(
+            JSON.stringify({ event: "command", func: "pauseVideo" }),
+            "*",
+          );
+        } catch { /* ignore */ }
+      });
+    };
 
     // ==========================================
-    // 1. KEYBOARD — screenshot + devtools shortcuts
+    // 1. KEYBOARD — all screenshot + devtools shortcuts
     // ==========================================
     const onKey = (e: KeyboardEvent) => {
       const k = e.key.toLowerCase();
@@ -83,6 +87,12 @@ export function SecurityGuard({
       if (k === "printscreen" || e.code === "PrintScreen" || e.keyCode === 44) {
         e.preventDefault(); e.stopPropagation();
         report("screenshot", "PrintScreen key pressed");
+        return;
+      }
+      // Win+Shift+S (Snipping Tool) — caught via keydown if browser allows
+      if (e.shiftKey && (e.metaKey || e.ctrlKey) && k === "s") {
+        e.preventDefault(); e.stopPropagation();
+        report("screenshot", "Win+Shift+S (Snipping Tool) detected");
         return;
       }
       // macOS Cmd+Shift+3/4/5/6
@@ -109,72 +119,100 @@ export function SecurityGuard({
     };
 
     // ==========================================
-    // 2. WINDOW BLUR + CLIPBOARD CHECK
-    // When window loses focus (Win+Shift+S, Alt+Tab, etc), wait 1 second,
-    // then check clipboard. If image → screenshot. If no image → ignore.
+    // 2. WINDOW BLUR — IMMEDIATE blackout + report
+    // This is the MOST IMPORTANT detector. Win+Shift+S, Snipping Tool,
+    // and screen recording apps ALL cause the browser window to lose focus.
+    // We blackout immediately + report after a short delay.
     // ==========================================
     let blurTimeout: ReturnType<typeof setTimeout> | null = null;
     const onBlur = () => {
-      // Don't blackout immediately — wait and check clipboard.
+      // Immediately blackout + pause videos.
+      setBlackedOut(true);
+      pauseAllVideos();
+      // Report after 500ms — if focus returns quickly (notification popup),
+      // we cancel the report. If focus stays away for >500ms, it's likely
+      // a real screenshot tool.
       if (blurTimeout) clearTimeout(blurTimeout);
-      blurTimeout = setTimeout(async () => {
-        const hasImage = await checkClipboardForImage();
-        if (hasImage) {
-          report("screenshot", "Image found in clipboard after window blur (screenshot confirmed)");
-        }
-      }, 1000);
+      blurTimeout = setTimeout(() => {
+        report("screenshot", "Window focus lost — screenshot or screen recording detected (Win+Shift+S, Snipping Tool, or screen recorder)");
+      }, 500);
     };
+
     const onFocus = () => {
-      if (blurTimeout) { clearTimeout(blurTimeout); blurTimeout = null; }
-      // Also check clipboard on focus return.
-      checkClipboardForImage().then((hasImage) => {
-        if (hasImage) {
-          report("screenshot", "Image found in clipboard on focus return (screenshot confirmed)");
-        }
-      });
+      // Cancel pending report if focus returned quickly.
+      if (blurTimeout) {
+        clearTimeout(blurTimeout);
+        blurTimeout = null;
+      }
+      // Don't remove blackout — let the report complete if it was triggered.
+      // Only remove if no report was made.
+      if (!reportedRef.current) {
+        setBlackedOut(false);
+      }
     };
 
     // ==========================================
-    // 3. PERIODIC CLIPBOARD CHECK (every 5 seconds)
-    // Catches screenshots taken via OS tools (Snipping Tool, etc.)
+    // 3. VISIBILITY CHANGE — catches mobile backgrounding
     // ==========================================
+    const onVisibility = () => {
+      if (document.hidden) {
+        setBlackedOut(true);
+        pauseAllVideos();
+      }
+    };
+
+    // ==========================================
+    // 4. PERIODIC CLIPBOARD CHECK (every 3 seconds)
+    // ==========================================
+    async function checkClipboardForImage(): Promise<boolean> {
+      try {
+        if (!navigator.clipboard || !navigator.clipboard.read) return false;
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          if (item.types.some((t) => t.startsWith("image/"))) return true;
+        }
+      } catch {
+        // Permission denied or not supported.
+      }
+      return false;
+    }
+
     const clipboardInterval = setInterval(async () => {
       if (reportedRef.current) return;
       const hasImage = await checkClipboardForImage();
       if (hasImage) {
-        report("screenshot", "Image detected in clipboard (periodic check — OS-level screenshot)");
+        report("screenshot", "Image detected in clipboard (screenshot confirmed)");
       }
-    }, 5000);
+    }, 3000);
 
     // ==========================================
-    // COPY/CONTEXT MENU blocking
+    // 5. RIGHT-CLICK + COPY blocking (everywhere, not just video)
     // ==========================================
+    const onContext = (e: MouseEvent) => {
+      e.preventDefault();
+    };
     const onCopy = (e: ClipboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.tagName !== "INPUT" && target.tagName !== "TEXTAREA") {
         e.preventDefault();
       }
     };
-    const onContext = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.closest("video, .secure-zone, iframe")) {
-        e.preventDefault();
-      }
-    };
 
-    // Register listeners
+    // Register ALL listeners.
     window.addEventListener("blur", onBlur);
     window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
     document.addEventListener("keydown", onKey, { capture: true });
-    document.addEventListener("copy", onCopy);
     document.addEventListener("contextmenu", onContext);
+    document.addEventListener("copy", onCopy);
 
     return () => {
       window.removeEventListener("blur", onBlur);
       window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
       document.removeEventListener("keydown", onKey, { capture: true } as EventListenerOptions);
-      document.removeEventListener("copy", onCopy);
       document.removeEventListener("contextmenu", onContext);
+      document.removeEventListener("copy", onCopy);
       clearInterval(clipboardInterval);
     };
   }, [studentId, studentName]);
@@ -191,8 +229,8 @@ export function SecurityGuard({
                 <path d="M7 11V7a5 5 0 0 1 10 0v4" />
               </svg>
             </div>
-            <h2 className="text-lg font-semibold">⚠️ Screenshot Detected</h2>
-            <p className="max-w-xs text-sm text-white/70">{violationMsg}</p>
+            <h2 className="text-lg font-semibold">⚠️ Screenshot / Screen Recording Detected</h2>
+            <p className="max-w-xs text-sm text-white/70">{violationMsg || "Window focus was lost — possible screenshot or screen recording."}</p>
             <p className="max-w-xs text-sm font-bold text-red-400">
               Your account has been DISABLED. Contact the academy owner to reactivate.
             </p>
