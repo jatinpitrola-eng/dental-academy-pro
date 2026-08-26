@@ -20,19 +20,6 @@ model Admin {
   name         String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-
-  sessions     AdminSession[]
-}
-
-model AdminSession {
-  id         String   @id @default(cuid())
-  adminId    String
-  admin      Admin    @relation(fields: [adminId], references: [id], onDelete: Cascade)
-  token      String   @unique
-  createdAt  DateTime @default(now())
-  expiresAt  DateTime
-
-  @@index([adminId])
 }
 
 model Student {
