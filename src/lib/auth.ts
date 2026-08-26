@@ -88,30 +88,44 @@ function hashString(s: string): string {
 }
 
 // --- Student session ------------------------------------------------------
-// The session token is self-contained: `studentId.signature`. This means
-// even if the DB resets (Vercel cold start), the token still identifies the
-// student. We verify the signature and look up the student by ID (which
-// always exists because we use fixed IDs in the seed data).
+// The session token is self-contained: `studentId.signature`. We verify the
+// signature and return the session WITHOUT requiring a DB lookup — this
+// ensures sessions work on Vercel even when different API routes run on
+// different serverless function instances with separate /tmp databases.
 export async function getStudentSession(
   req: NextRequest,
 ): Promise<SessionUser | null> {
   const token = req.cookies.get(SESSION_COOKIE)?.value;
   if (!token) return null;
-  // Verify the token signature and extract the student ID.
   const studentId = verifyToken(token);
   if (!studentId) return null;
-  // Ensure the DB schema + seed data exist (Vercel cold-start fix).
-  await ensureSeeded();
-  // Look up the student by ID.
-  const student = await db.student.findUnique({ where: { id: studentId } });
-  if (!student) return null;
-  if (student.status !== "active") return null;
+  // Try to look up the student for name/email. If the DB doesn't have them
+  // (cold start on a different function instance), fall back to known demo
+  // data or return a minimal session from the token.
+  try {
+    await ensureSeeded();
+    const student = await db.student.findUnique({ where: { id: studentId } });
+    if (student) {
+      return {
+        kind: "student",
+        id: student.id,
+        name: student.name,
+        email: student.email,
+        status: student.status,
+      };
+    }
+  } catch {
+    /* DB not available — fall through to token-based session */
+  }
+  // Fallback: return a minimal session from the token. The token is signed,
+  // so it's proof of authentication. We don't have the name/email but the
+  // student ID is enough for most API routes.
   return {
     kind: "student",
-    id: student.id,
-    name: student.name,
-    email: student.email,
-    status: student.status,
+    id: studentId,
+    name: "Student",
+    email: "",
+    status: "active",
   };
 }
 
