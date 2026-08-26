@@ -88,30 +88,26 @@ export async function POST(
       { status: 400 },
     );
 
-  // Build the per-video context for the AI.
-  const summary = video.summaries[0]; // there's only ever one summary per video
+  // Build the per-video context for the AI — keep it SHORT for speed.
+  const summary = video.summaries[0];
   const contextBits: string[] = [
-    `You are talking with a student named ${session.name} who is watching the video "${video.title}" in the course "${video.course.title}".`,
+    `Student: ${session.name}. Video: "${video.title}" in course "${video.course.title}".`,
   ];
   if (video.description)
-    contextBits.push(`Video description: ${video.description}`);
+    contextBits.push(`Description: ${video.description.slice(0, 300)}`);
   if (summary?.summary) {
-    // Include the cached summary as context so the AI can answer specifically
-    // about what was covered in this lesson.
-    const s = summary.summary.slice(0, 4000);
-    contextBits.push(`Summary of this video lesson:\n${s}`);
+    // Only send a short excerpt of the summary (not the full thing).
+    const s = summary.summary.slice(0, 1500);
+    contextBits.push(`Lesson summary:\n${s}`);
   }
-  if (summary?.transcript) {
-    const t = summary.transcript.slice(0, 6000);
-    contextBits.push(`Transcript excerpt:\n${t}`);
-  }
-  const system = `${DENTAL_EXPERT_SYSTEM}\n\n--- VIDEO CONTEXT ---\n${contextBits.join("\n\n")}\n\nAnswer the student's questions with reference to this video where relevant, and use your full dental knowledge for anything broader.`;
+  // NOTE: we deliberately do NOT send the transcript (too long, slows the LLM).
+  const system = `${DENTAL_EXPERT_SYSTEM}\n\n--- VIDEO CONTEXT ---\n${contextBits.join("\n\n")}`;
 
-  // Load recent history.
+  // Load recent history — only last 6 messages for speed.
   const historyRows = await db.chatMessage.findMany({
     where: { studentId: session.id, videoId: video.id },
     orderBy: { createdAt: "asc" },
-    take: 12,
+    take: 6,
     select: { role: true, content: true },
   });
   const history = historyRows.map((h) => ({

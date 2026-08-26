@@ -35,6 +35,8 @@ export function Brand({
       clicksRef.current = 0;
       setPulse(true);
       setTimeout(() => setPulse(false), 600);
+      // Dismiss the intro if it's playing.
+      window.dispatchEvent(new Event("da-open-admin"));
       setAdminAccessOpen(true);
     }
   };

@@ -324,18 +324,20 @@ export function StudentVideo() {
             />
           )}
 
-          {/* Watermark overlay — student identity + timestamp */}
+          {/* Watermark overlay — student identity + timestamp.
+              Dense + visible so even if a screenshot is taken, the student's
+              identity is clearly visible on every frame. */}
           <div className="pointer-events-none absolute inset-0 z-10">
-            {Array.from({ length: 9 }).map((_, i) => {
-              const col = i % 3;
-              const row = Math.floor(i / 3);
+            {Array.from({ length: 12 }).map((_, i) => {
+              const col = i % 4;
+              const row = Math.floor(i / 4);
               return (
                 <span
                   key={i}
-                  className="wm-float absolute -rotate-[18deg] select-none whitespace-nowrap text-[11px] font-semibold text-white/30"
+                  className="wm-float absolute -rotate-[18deg] select-none whitespace-nowrap text-[10px] font-bold text-white/40 sm:text-xs"
                   style={{
-                    top: `${row * 33 + 6}%`,
-                    left: `${col * 33 + 3}%`,
+                    top: `${row * 25 + 4}%`,
+                    left: `${col * 25 + 2}%`,
                   }}
                 >
                   {student.name} · {student.email} ·{" "}

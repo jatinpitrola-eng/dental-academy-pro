@@ -85,6 +85,7 @@ export function SecurityGuard({
     };
 
     // --- KEY blocking: F12, devtools, copy, save, view-source, prints ----
+    // Use capture phase so we intercept BEFORE the OS can act on the key.
     const onKey = (e: KeyboardEvent) => {
       const k = e.key.toLowerCase();
       const code = e.code;
@@ -92,12 +93,36 @@ export function SecurityGuard({
       // F12 devtools
       if (e.key === "F12") {
         e.preventDefault();
+        e.stopPropagation();
+        setBlackedOut(true); // immediate blackout
         report("devtools", "F12 pressed");
         return;
       }
-      // PrintScreen
-      if (k === "printscreen" || code === "PrintScreen") {
+      // PrintScreen — intercept IMMEDIATELY in capture phase, before the OS
+      // captures the screen. Blackout + report + disable.
+      if (k === "printscreen" || code === "PrintScreen" || e.keyCode === 44) {
         e.preventDefault();
+        e.stopPropagation();
+        // Pause all videos instantly so no frame is captured.
+        document.querySelectorAll("video").forEach((v) => {
+          try {
+            v.pause();
+          } catch {
+            /* ignore */
+          }
+        });
+        // Also pause YouTube iframes.
+        document.querySelectorAll("iframe").forEach((f) => {
+          try {
+            f.contentWindow?.postMessage(
+              JSON.stringify({ event: "command", func: "pauseVideo" }),
+              "*",
+            );
+          } catch {
+            /* ignore */
+          }
+        });
+        setBlackedOut(true); // immediate blackout
         report("screenshot", "PrintScreen key pressed");
         return;
       }
@@ -108,12 +133,15 @@ export function SecurityGuard({
         ["i", "j", "c"].includes(k)
       ) {
         e.preventDefault();
+        e.stopPropagation();
+        setBlackedOut(true);
         report("devtools", `Devtools shortcut ${k.toUpperCase()} pressed`);
         return;
       }
       // Ctrl/Cmd + U (view source)
       if ((e.ctrlKey || e.metaKey) && k === "u") {
         e.preventDefault();
+        e.stopPropagation();
         report("devtools", "View source attempted");
         return;
       }

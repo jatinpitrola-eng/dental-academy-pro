@@ -1,42 +1,31 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useApp } from "@/lib/store";
 
 /**
  * IntroGate — plays the academy intro video every time the PWA is opened.
- * The intro CANNOT be skipped — the user must watch it to the end. This keeps
- * the brand front-and-center and prevents casual access.
+ * The intro CANNOT be skipped.
  *
- * Implementation notes:
- *  - We use sessionStorage to remember that the intro has played for the
- *    current browser session, so a refresh within the same session doesn't
- *    replay it. But every fresh app open (new session) shows it again.
- *  - The video has NO controls, no right-click, no fast-forward via keyboard.
- *  - A progress bar shows how long until the intro ends.
+ * This component is intentionally independent of the Zustand store to avoid
+ * hydration mismatches. It uses only local React state.
+ *
+ * To open the admin portal while the intro is playing, the user clicks the
+ * logo 5 times — but the logo is inside the children which is hidden during
+ * the intro. So we also listen for a custom window event "da-open-admin"
+ * that the Brand component can dispatch to dismiss the intro.
  */
 export function IntroGate({ children }: { children: React.ReactNode }) {
   const [done, setDone] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const admin = useApp((s) => s.admin);
 
+  // Listen for the admin-portal-open event to dismiss the intro.
   useEffect(() => {
-    // Don't show the intro to the admin (they manage content, no need).
-    if (admin) {
-      setDone(true);
-      return;
-    }
-    // Show intro once per browser session.
-    const seen = sessionStorage.getItem("da_intro_seen");
-    if (seen === "1") {
-      setDone(true);
-      return;
-    }
-    // Don't show intro when the admin access modal is open.
-    // (We just let it play; the modal opens on top if needed.)
-  }, [admin]);
+    const onAdminOpen = () => setDone(true);
+    window.addEventListener("da-open-admin", onAdminOpen);
+    return () => window.removeEventListener("da-open-admin", onAdminOpen);
+  }, []);
 
   const onTime = () => {
     const v = videoRef.current;
@@ -46,12 +35,11 @@ export function IntroGate({ children }: { children: React.ReactNode }) {
   };
 
   const onEnded = () => {
-    sessionStorage.setItem("da_intro_seen", "1");
     setDone(true);
   };
 
-  // Force autoplay — muted first to satisfy autoplay policies, then unmute on
-  // first user interaction.
+  // Force autoplay — muted first to satisfy autoplay policies, then try to
+  // unmute on first user interaction.
   useEffect(() => {
     const v = videoRef.current;
     if (!v || done) return;
@@ -112,8 +100,7 @@ export function IntroGate({ children }: { children: React.ReactNode }) {
         tabIndex={-1}
         style={{ pointerEvents: "none" }}
       />
-      {/* Overlay to make sure no clicks reach the video element to bring up
-          native controls (some browsers do this on long-press). */}
+      {/* Overlay to prevent clicks reaching the video element. */}
       <div className="pointer-events-none absolute inset-0" />
 
       {/* Brand + skip-warning */}
@@ -124,7 +111,7 @@ export function IntroGate({ children }: { children: React.ReactNode }) {
         </div>
       </div>
 
-      {/* Progress bar at bottom — no seek, just visual */}
+      {/* Progress bar at bottom */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1.5 bg-white/10">
         <div
           className="h-full bg-emerald-500 transition-[width] duration-200 ease-linear"
