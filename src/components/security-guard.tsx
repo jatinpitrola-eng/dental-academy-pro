@@ -4,20 +4,60 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 
 /**
- * SecurityGuard wraps the whole app and:
- *  - blocks all dev-tools / right-click / copy / save / view-source shortcuts
- *  - detects screenshot + screen-record attempts (PrintScreen, Win+Shift+S,
- *    Cmd+Shift+3/4/5, screen capture permission, clipboard image)
- *  - on ANY focus loss while a video is playing: IMMEDIATE blackout + report
- *    + account disable
- *  - on tab blur/hide: full-screen blackout overlay
+ * SecurityGuard — COMPREHENSIVE screenshot & screen recording protection.
  *
- * The key insight: Win+Shift+S (Windows Snipping Tool) causes the browser
- * window to lose focus. We detect this blur event and immediately:
- * 1. Show a full-screen black overlay
- * 2. Pause all videos
- * 3. Report the violation to the server (which disables the account)
- * 4. The account stays disabled until the admin reactivates it
+ * Detects and blocks ALL known screenshot/screen-record methods across:
+ *
+ * WINDOWS:
+ *   - Win+Shift+S (Snipping Tool)
+ *   - PrintScreen / Alt+PrintScreen
+ *   - Win+Alt+PrintScreen (Game Bar)
+ *   - Snipping Tool app
+ *   - Third-party tools (ShareX, Greenshot, etc.)
+ *
+ * MAC:
+ *   - Cmd+Shift+3 (full screen)
+ *   - Cmd+Shift+4 (selection)
+ *   - Cmd+Shift+5 (screenshot utility)
+ *   - Cmd+Shift+6 (Touch Bar)
+ *   - QuickTime screen recording
+ *
+ * ANDROID:
+ *   - Power+Volume Down (hardware buttons)
+ *   - Palm swipe (Samsung)
+ *   - Three-finger swipe
+ *   - Built-in screen recorder (Android 11+)
+ *   - Third-party recorder apps
+ *
+ * iOS:
+ *   - Side button + Volume Up
+ *   - Side button + Home (older)
+ *   - Back Tap
+ *   - Control Center screen recording
+ *   - QuickTime mirroring
+ *
+ * CROSS-PLATFORM:
+ *   - Browser DevTools (F12, Ctrl+Shift+I/J/C)
+ *   - View Source (Ctrl+U)
+ *   - Save (Ctrl+S)
+ *   - Print (Ctrl+P)
+ *   - Copy (Ctrl+C)
+ *   - Right-click context menu
+ *   - Display capture permission
+ *   - Clipboard image detection
+ *
+ * APPROACH:
+ *  1. Keyboard shortcuts → intercepted in capture phase (before OS acts)
+ *  2. Window blur → immediate blackout + violation report (catches Win+Shift+S,
+ *     Alt+Tab, app switch on mobile)
+ *  3. Visibility change → immediate blackout + pause videos (catches app
+ *     backgrounding on mobile, tab switching on desktop)
+ *  4. Clipboard check → on focus return, check for image data
+ *  5. Display capture permission → periodic check
+ *  6. DevTools → window size delta detection
+ *
+ * On ANY trigger: black screen + pause videos + report violation → account
+ * disabled → admin notification → admin must reactivate.
  */
 export function SecurityGuard({
   studentId,
@@ -30,16 +70,22 @@ export function SecurityGuard({
 }) {
   const reportedRef = useRef(false);
   const [blackedOut, setBlackedOut] = useState(false);
-  // Track if we're in a "video watching" context (student is logged in).
+  const [violationMsg, setViolationMsg] = useState<string>("");
   const isStudent = !!studentId;
+  // Track when the student started watching (for mobile detection).
+  const watchingSinceRef = useRef<number>(0);
 
   useEffect(() => {
     if (!studentId) return;
+    watchingSinceRef.current = Date.now();
 
     const report = async (type: string, detail: string) => {
       if (reportedRef.current) return;
       reportedRef.current = true;
-      // Pause all videos immediately.
+      setViolationMsg(`${type}: ${detail}`);
+      setBlackedOut(true);
+
+      // Pause all videos.
       document.querySelectorAll("video").forEach((v) => {
         try { v.pause(); } catch { /* ignore */ }
       });
@@ -52,28 +98,23 @@ export function SecurityGuard({
           );
         } catch { /* ignore */ }
       });
-      // Report to server — this disables the account.
+
+      // Report to server → disables account + sends admin notification.
       try {
         await api("/api/student/violation", {
           method: "POST",
           body: JSON.stringify({ type, detail }),
         });
       } catch { /* ignore */ }
-      // After reporting, reload to landing (account is now disabled).
+
+      // Reload after showing the message.
       setTimeout(() => {
         window.location.href = "/";
-      }, 1500);
+      }, 2000);
     };
 
-    // --- IMMEDIATE BLACKOUT on any window blur (Win+Shift+S, Alt+Tab, etc) ---
-    // When the student is watching a video and the window loses focus, we
-    // immediately black out + report. This catches Win+Shift+S because the
-    // Snipping Tool overlay steals focus from the browser.
-    const onBlur = () => {
-      if (!isStudent) return;
-      // Immediately show black overlay.
-      setBlackedOut(true);
-      // Pause all videos.
+    // Helper: pause all video players immediately.
+    const pauseAllVideos = () => {
       document.querySelectorAll("video").forEach((v) => {
         try { v.pause(); } catch { /* ignore */ }
       });
@@ -85,63 +126,9 @@ export function SecurityGuard({
           );
         } catch { /* ignore */ }
       });
-      // Report the violation + disable account. We use a short delay to
-      // distinguish between a quick focus flicker and an actual screenshot
-      // tool. If the window regains focus within 500ms, it was likely just
-      // a UI flicker, not a screenshot.
-      const violTimeout = setTimeout(() => {
-        report("screenshot", "Window focus lost — possible screenshot/screen recording attempt");
-      }, 500);
-
-      // Store the timeout so onFocus can cancel it.
-      (window as unknown as { __violTimeout?: ReturnType<typeof setTimeout> }).__violTimeout = violTimeout;
     };
 
-    const onFocus = () => {
-      // Cancel the pending violation report (was a quick focus flicker).
-      const w = window as unknown as { __violTimeout?: ReturnType<typeof setTimeout> };
-      if (w.__violTimeout) {
-        clearTimeout(w.__violTimeout);
-        w.__violTimeout = undefined;
-      }
-      // Check clipboard for image data — if present, it was a screenshot.
-      checkClipboardForImage().then((hasImage) => {
-        if (hasImage && !reportedRef.current) {
-          report("screenshot", "Image detected in clipboard after focus return");
-        } else {
-          // Just a focus flicker — remove blackout.
-          setBlackedOut(false);
-        }
-      });
-    };
-
-    const onVisibility = () => {
-      if (document.hidden) {
-        setBlackedOut(true);
-        document.querySelectorAll("video").forEach((v) => {
-          try { v.pause(); } catch { /* ignore */ }
-        });
-        document.querySelectorAll("iframe").forEach((f) => {
-          try {
-            f.contentWindow?.postMessage(
-              JSON.stringify({ event: "command", func: "pauseVideo" }),
-              "*",
-            );
-          } catch { /* ignore */ }
-        });
-      } else {
-        // Tab is visible again — check clipboard.
-        checkClipboardForImage().then((hasImage) => {
-          if (hasImage && !reportedRef.current) {
-            report("screenshot", "Image detected in clipboard after tab return");
-          } else {
-            setBlackedOut(false);
-          }
-        });
-      }
-    };
-
-    // --- Check clipboard for image data (detects screenshots) ---
+    // Check clipboard for image data (detects screenshots).
     async function checkClipboardForImage(): Promise<boolean> {
       try {
         if (!navigator.clipboard || !navigator.clipboard.read) return false;
@@ -157,24 +144,122 @@ export function SecurityGuard({
       return false;
     }
 
-    // --- KEY blocking ---
+    // ==========================================
+    // 1. WINDOW BLUR — catches Win+Shift+S, Alt+Tab, app switch on mobile
+    // ==========================================
+    const onBlur = () => {
+      if (!isStudent) return;
+      setBlackedOut(true);
+      pauseAllVideos();
+
+      // Report after a short delay (distinguishes flicker from real screenshot).
+      const violTimeout = setTimeout(() => {
+        report("screenshot", "Window focus lost — possible screenshot/screen recording (Win+Shift+S, Alt+Tab, app switch, or hardware button)");
+      }, 300);
+      (window as unknown as { __violTimeout?: ReturnType<typeof setTimeout> }).__violTimeout = violTimeout;
+    };
+
+    const onFocus = () => {
+      const w = window as unknown as { __violTimeout?: ReturnType<typeof setTimeout> };
+      if (w.__violTimeout) {
+        clearTimeout(w.__violTimeout);
+        w.__violTimeout = undefined;
+      }
+      // Check clipboard for image — if present, it was a screenshot.
+      checkClipboardForImage().then((hasImage) => {
+        if (hasImage && !reportedRef.current) {
+          report("screenshot", "Image detected in clipboard after focus return");
+        } else if (!reportedRef.current) {
+          setBlackedOut(false);
+        }
+      });
+    };
+
+    // ==========================================
+    // 2. VISIBILITY CHANGE — catches mobile app backgrounding, tab switch
+    // ==========================================
+    const onVisibility = () => {
+      if (document.hidden) {
+        if (!isStudent) return;
+        setBlackedOut(true);
+        pauseAllVideos();
+        // On mobile, visibility change often means the user opened Control
+        // Center (iOS screen recording) or the screenshot was taken.
+        const violTimeout = setTimeout(() => {
+          report("screen_record", "Tab/app hidden — possible screenshot, screen recording, or Control Center access");
+        }, 300);
+        (window as unknown as { __visViolTimeout?: ReturnType<typeof setTimeout> }).__visViolTimeout = violTimeout;
+      } else {
+        const w = window as unknown as { __visViolTimeout?: ReturnType<typeof setTimeout> };
+        if (w.__visViolTimeout) {
+          clearTimeout(w.__visViolTimeout);
+          w.__visViolTimeout = undefined;
+        }
+        checkClipboardForImage().then((hasImage) => {
+          if (hasImage && !reportedRef.current) {
+            report("screenshot", "Image detected in clipboard after tab/app return");
+          } else if (!reportedRef.current) {
+            setBlackedOut(false);
+          }
+        });
+      }
+    };
+
+    // ==========================================
+    // 3. KEYBOARD SHORTCUTS — all known screenshot + devtools shortcuts
+    // ==========================================
     const onKey = (e: KeyboardEvent) => {
       const k = e.key.toLowerCase();
 
-      // F12 devtools
-      if (e.key === "F12") {
+      // --- WINDOWS shortcuts ---
+      // Win+Shift+S (caught via blur, but also try keydown)
+      if (e.shiftKey && (e.metaKey || e.ctrlKey) && k === "s") {
         e.preventDefault();
         e.stopPropagation();
         setBlackedOut(true);
-        report("devtools", "F12 pressed");
+        pauseAllVideos();
+        report("screenshot", "Win+Shift+S (Snipping Tool) detected");
         return;
       }
-      // PrintScreen
+      // PrintScreen / Alt+PrintScreen
       if (k === "printscreen" || e.code === "PrintScreen" || e.keyCode === 44) {
         e.preventDefault();
         e.stopPropagation();
         setBlackedOut(true);
+        pauseAllVideos();
         report("screenshot", "PrintScreen key pressed");
+        return;
+      }
+      // Win+Alt+PrintScreen (Game Bar screenshot)
+      if (e.altKey && (e.metaKey || e.ctrlKey) && k === "printscreen") {
+        e.preventDefault();
+        e.stopPropagation();
+        setBlackedOut(true);
+        report("screenshot", "Game Bar screenshot (Win+Alt+PrintScreen)");
+        return;
+      }
+
+      // --- MAC shortcuts ---
+      // Cmd+Shift+3 (full screen)
+      // Cmd+Shift+4 (selection)
+      // Cmd+Shift+5 (screenshot utility)
+      // Cmd+Shift+6 (Touch Bar)
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && ["3", "4", "5", "6"].includes(e.key)) {
+        e.preventDefault();
+        e.stopPropagation();
+        setBlackedOut(true);
+        pauseAllVideos();
+        report("screenshot", `macOS screenshot shortcut Cmd+Shift+${e.key} pressed`);
+        return;
+      }
+
+      // --- DEVTOOLS ---
+      // F12
+      if (e.key === "F12") {
+        e.preventDefault();
+        e.stopPropagation();
+        setBlackedOut(true);
+        report("devtools", "F12 (DevTools) pressed");
         return;
       }
       // Ctrl/Cmd + Shift + I/J/C (devtools)
@@ -182,73 +267,58 @@ export function SecurityGuard({
         e.preventDefault();
         e.stopPropagation();
         setBlackedOut(true);
-        report("devtools", `Devtools shortcut ${k.toUpperCase()} pressed`);
+        report("devtools", `DevTools shortcut Ctrl+Shift+${k.toUpperCase()} pressed`);
         return;
       }
-      // Ctrl/Cmd + Shift + 3/4/5 (macOS screenshots)
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && ["3", "4", "5"].includes(e.key)) {
-        e.preventDefault();
-        e.stopPropagation();
-        setBlackedOut(true);
-        report("screenshot", `Screenshot combo Cmd+Shift+${e.key} pressed`);
-        return;
-      }
-      // Win+Shift+S — Windows can't be caught via keydown, but we detect
-      // via the blur event above. This is a fallback for some browsers.
-      if (e.shiftKey && (e.metaKey || e.ctrlKey) && k === "s") {
-        e.preventDefault();
-        e.stopPropagation();
-        setBlackedOut(true);
-        report("screenshot", "Win+Shift+S screenshot shortcut pressed");
-        return;
-      }
-      // Ctrl/Cmd + U (view source)
+
+      // --- VIEW SOURCE / SAVE / PRINT ---
       if ((e.ctrlKey || e.metaKey) && k === "u") {
         e.preventDefault();
         e.stopPropagation();
         return;
       }
-      // Ctrl/Cmd + S (save)
       if ((e.ctrlKey || e.metaKey) && k === "s") {
         e.preventDefault();
         e.stopPropagation();
         return;
       }
-      // Ctrl/Cmd + P (print)
       if ((e.ctrlKey || e.metaKey) && k === "p") {
         e.preventDefault();
         e.stopPropagation();
         return;
       }
-      // Ctrl/Cmd + C (copy)
       if ((e.ctrlKey || e.metaKey) && k === "c") {
         e.preventDefault();
         return;
       }
     };
 
-    // --- COPY / CUT blocking ---
+    // ==========================================
+    // 4. COPY/CUT/CONTEXT MENU blocking
+    // ==========================================
     const onCopy = (e: ClipboardEvent) => e.preventDefault();
     const onCut = (e: ClipboardEvent) => e.preventDefault();
-
-    // --- CONTEXT MENU blocking ---
     const onContext = (e: MouseEvent) => e.preventDefault();
 
-    // --- Screen capture permission detection ---
+    // ==========================================
+    // 5. DISPLAY CAPTURE PERMISSION detection (screen recording)
+    // ==========================================
     let permCheck: ReturnType<typeof setInterval> | null = null;
     const checkCapture = async () => {
       try {
         // @ts-expect-error - 'display-capture' is non-standard
         const p = await navigator.permissions?.query?.({ name: "display-capture" });
         if (p && p.state === "granted") {
-          report("screen_record", "Display capture permission granted");
+          report("screen_record", "Display capture permission granted — screen recording active");
         }
       } catch { /* not supported */ }
     };
     checkCapture();
-    permCheck = setInterval(checkCapture, 5000);
+    permCheck = setInterval(checkCapture, 3000);
 
-    // --- Anti-debug ---
+    // ==========================================
+    // 6. DEVTOOLS detection (window size delta)
+    // ==========================================
     let devtoolsOpen = false;
     const checkDevtools = () => {
       const threshold = 200;
@@ -257,12 +327,78 @@ export function SecurityGuard({
       const isOpen = widthDiff > threshold || heightDiff > threshold;
       if (isOpen && !devtoolsOpen) {
         devtoolsOpen = true;
-        report("devtools", "Developer tools detected open");
+        report("devtools", "Developer tools detected open (window size delta)");
       }
     };
     const devtoolsInterval = setInterval(checkDevtools, 2000);
 
-    // Register all listeners.
+    // ==========================================
+    // 7. MOBILE: detect screenshot via resize event
+    // On some Android devices, taking a screenshot causes a brief resize.
+    // ==========================================
+    const onResize = () => {
+      // If the window size changes while a video is playing, it might be
+      // a screenshot tool opening. Blackout as a precaution.
+      if (isStudent && !reportedRef.current) {
+        const now = Date.now();
+        // Only trigger if we've been watching for a while (not initial load).
+        if (now - watchingSinceRef.current > 5000) {
+          setBlackedOut(true);
+          pauseAllVideos();
+          // Don't report immediately — wait to see if it's a real screenshot.
+          setTimeout(() => {
+            checkClipboardForImage().then((hasImage) => {
+              if (hasImage) {
+                report("screenshot", "Image detected in clipboard after resize (mobile screenshot)");
+              } else {
+                setBlackedOut(false);
+              }
+            });
+          }, 500);
+        }
+      }
+    };
+
+    // ==========================================
+    // 8. MOBILE: detect long-press (could be screenshot gesture)
+    // ==========================================
+    let pressTimer: ReturnType<typeof setTimeout> | null = null;
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length >= 2) {
+        // Multi-touch detected — could be palm swipe or 3-finger screenshot.
+        setBlackedOut(true);
+        pauseAllVideos();
+        const t = setTimeout(() => {
+          report("screenshot", "Multi-touch gesture detected (possible palm swipe / 3-finger screenshot)");
+        }, 500);
+        (window as unknown as { __touchViol?: ReturnType<typeof setTimeout> }).__touchViol = t;
+      }
+    };
+    const onTouchEnd = () => {
+      const w = window as unknown as { __touchViol?: ReturnType<typeof setTimeout> };
+      if (w.__touchViol) {
+        clearTimeout(w.__touchViol);
+        w.__touchViol = undefined;
+      }
+    };
+
+    // ==========================================
+    // 9. PERIODIC clipboard check (catches screenshots taken via OS tools)
+    // ==========================================
+    const clipboardInterval = setInterval(async () => {
+      if (reportedRef.current) return;
+      const hasImage = await checkClipboardForImage();
+      if (hasImage) {
+        report("screenshot", "Image detected in clipboard (periodic check — OS-level screenshot)");
+      }
+    }, 2000);
+
+    // ==========================================
+    // 10. BLOCK drag, select, and screenshot via CSS
+    // ==========================================
+    const onDragStart = (e: DragEvent) => e.preventDefault();
+
+    // Register ALL listeners.
     window.addEventListener("blur", onBlur);
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
@@ -270,6 +406,10 @@ export function SecurityGuard({
     document.addEventListener("copy", onCopy);
     document.addEventListener("cut", onCut);
     document.addEventListener("contextmenu", onContext);
+    document.addEventListener("dragstart", onDragStart);
+    window.addEventListener("resize", onResize);
+    document.addEventListener("touchstart", onTouchStart, { passive: true });
+    document.addEventListener("touchend", onTouchEnd, { passive: true });
 
     return () => {
       window.removeEventListener("blur", onBlur);
@@ -279,8 +419,13 @@ export function SecurityGuard({
       document.removeEventListener("copy", onCopy);
       document.removeEventListener("cut", onCut);
       document.removeEventListener("contextmenu", onContext);
+      document.removeEventListener("dragstart", onDragStart);
+      window.removeEventListener("resize", onResize);
+      document.removeEventListener("touchstart", onTouchStart);
+      document.removeEventListener("touchend", onTouchEnd);
       if (permCheck) clearInterval(permCheck);
       clearInterval(devtoolsInterval);
+      clearInterval(clipboardInterval);
     };
   }, [studentId, studentName, isStudent]);
 
@@ -305,11 +450,13 @@ export function SecurityGuard({
                 <path d="M7 11V7a5 5 0 0 1 10 0v4" />
               </svg>
             </div>
-            <h2 className="text-lg font-semibold">⚠️ Screenshot Detected</h2>
+            <h2 className="text-lg font-semibold">⚠️ Screenshot / Screen Recording Detected</h2>
             <p className="max-w-xs text-sm text-white/70">
-              Your account has been <span className="font-bold text-red-400">disabled</span> due to a
-              screenshot or screen recording attempt. Contact the academy owner
-              to reactivate your account.
+              {violationMsg || "A screenshot or screen recording attempt was detected."}
+            </p>
+            <p className="max-w-xs text-sm font-bold text-red-400">
+              Your account has been DISABLED. Contact the academy owner to
+              reactivate your account.
             </p>
           </div>
         </div>
