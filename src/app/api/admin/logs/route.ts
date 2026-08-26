@@ -1,46 +1,74 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/guards";
+import { createClient } from "@libsql/client";
 
 export const runtime = "nodejs";
+
+// Use direct libsql client for faster queries.
+const client = createClient({
+  url: "libsql://dental-academy-jatinpitrola-eng.aws-ap-south-1.turso.io",
+  authToken: "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODc3MzM5NDcsImlkIjoiMDFhMDNkM2QtZjIwMS03ZDE2LWIwOTQtMzcyNmMxMDcwODNiIiwia2lkIjoiSUZMcWF5Z3dwYjRUd2lwZURrYUtaanpXTUJKSkxJMTIzaWFsWUhUZnIwayIsInJpZCI6Ijk1MzE1NTY5LTU3ZGEtNDk0ZS1iZGI5LWQ2MWYyNzhhMGY1YiJ9.fmMIcFjKgNVFim0UF79LazrSplUECpae2ET3t_3DrrVZ-sYJwEKNpK0T4CiKWahtx_uGLzvmllG7PX-7WbN7Cg',
+});
 
 export async function GET(req: NextRequest) {
   if (!(await requireAdmin(req)))
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
-    const [logs, violations] = await Promise.all([
-      db.activityLog.findMany({ orderBy: { createdAt: "desc" }, take: 200 }).catch(() => []),
-      db.violation.findMany({ orderBy: { createdAt: "desc" }, take: 100 }).catch(() => []),
+    // Use direct SQL for speed — single queries, not N+1.
+    const [logsRes, violationsRes, studentsCount, activeCount, pendingCount, disabledCount, coursesCount, videosCount, pendingOtpsCount, violationsCount, grantsCount] = await Promise.all([
+      client.execute('SELECT * FROM "ActivityLog" ORDER BY "createdAt" DESC LIMIT 50'),
+      client.execute('SELECT * FROM "Violation" ORDER BY "createdAt" DESC LIMIT 50'),
+      client.execute('SELECT COUNT(*) as c FROM "Student"'),
+      client.execute('SELECT COUNT(*) as c FROM "Student" WHERE "status" = \'active\''),
+      client.execute('SELECT COUNT(*) as c FROM "Student" WHERE "status" = \'pending\''),
+      client.execute('SELECT COUNT(*) as c FROM "Student" WHERE "status" = \'disabled\''),
+      client.execute('SELECT COUNT(*) as c FROM "Course"'),
+      client.execute('SELECT COUNT(*) as c FROM "Video"'),
+      client.execute('SELECT COUNT(*) as c FROM "OtpRequest" WHERE "status" = \'pending\''),
+      client.execute('SELECT COUNT(*) as c FROM "Violation"'),
+      client.execute('SELECT COUNT(*) as c FROM "AccessGrant" WHERE "revoked" = 0'),
     ]);
 
-    // Fetch student names for logs/violations.
-    for (const l of logs) {
-      if (l.studentId) {
-        const s = await db.student.findUnique({ where: { id: l.studentId as string } }).catch(() => null);
-        l.student = s ? { name: s.name as string, email: s.email as string } : null;
-      }
-    }
-    for (const v of violations) {
-      if (v.studentId) {
-        const s = await db.student.findUnique({ where: { id: v.studentId as string } }).catch(() => null);
-        v.student = s ? { name: s.name as string, email: s.email as string } : null;
-      }
+    // Build student lookup map (single query).
+    const studentsRes = await client.execute('SELECT "id", "name", "email" FROM "Student"');
+    const studentMap = new Map<string, { name: string; email: string }>();
+    for (const row of studentsRes.rows) {
+      const r = row as Record<string, unknown>;
+      studentMap.set(r.id as string, { name: r.name as string, email: r.email as string });
     }
 
-    const [students, activeStudents, pendingStudents, disabledStudents, courses, videos, pendingOtps, violationsCount, grants] = await Promise.all([
-      db.student.count().catch(() => 0),
-      db.student.count({ where: { status: "active" } }).catch(() => 0),
-      db.student.count({ where: { status: "pending" } }).catch(() => 0),
-      db.student.count({ where: { status: "disabled" } }).catch(() => 0),
-      db.course.count().catch(() => 0),
-      db.video.count().catch(() => 0),
-      db.otpRequest.count({ where: { status: "pending" } }).catch(() => 0),
-      db.violation.count().catch(() => 0),
-      db.accessGrant.count({ where: { revoked: false } }).catch(() => 0),
-    ]);
+    // Attach student info to logs and violations.
+    const logs = logsRes.rows.map((r) => {
+      const row = r as Record<string, unknown>;
+      const studentId = row.studentId as string | null;
+      return {
+        ...row,
+        student: studentId ? studentMap.get(studentId) || null : null,
+      };
+    });
 
-    const stats = { students, activeStudents, pendingStudents, disabledStudents, courses, videos, pendingOtps, violations: violationsCount, grants };
+    const violations = violationsRes.rows.map((r) => {
+      const row = r as Record<string, unknown>;
+      const studentId = row.studentId as string | null;
+      return {
+        ...row,
+        student: studentId ? studentMap.get(studentId) || null : null,
+      };
+    });
+
+    const stats = {
+      students: Number((studentsCount.rows[0] as Record<string, unknown>).c),
+      activeStudents: Number((activeCount.rows[0] as Record<string, unknown>).c),
+      pendingStudents: Number((pendingCount.rows[0] as Record<string, unknown>).c),
+      disabledStudents: Number((disabledCount.rows[0] as Record<string, unknown>).c),
+      courses: Number((coursesCount.rows[0] as Record<string, unknown>).c),
+      videos: Number((videosCount.rows[0] as Record<string, unknown>).c),
+      pendingOtps: Number((pendingOtpsCount.rows[0] as Record<string, unknown>).c),
+      violations: Number((violationsCount.rows[0] as Record<string, unknown>).c),
+      grants: Number((grantsCount.rows[0] as Record<string, unknown>).c),
+    };
 
     return NextResponse.json({ logs, violations, stats });
   } catch (e) {
