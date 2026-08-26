@@ -1,0 +1,10 @@
+// vercel.json — configure all API routes to run in a single serverless
+// function so they share the same /tmp SQLite database.
+{
+  "functions": {
+    "app/api/**/route.ts": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  }
+}

@@ -1,8 +1,27 @@
 import { NextRequest } from "next/server";
-import { randomBytes } from "crypto";
+import { randomBytes, createHmac } from "crypto";
 import { db } from "./db";
 import { verifyPassword } from "./crypto";
 import { ensureSeeded } from "./auto-seed";
+
+// Secret for signing session tokens. Fixed so tokens survive across different
+// serverless function instances on Vercel.
+const SESSION_SECRET = process.env.SESSION_SECRET || "dental-academy-session-secret-2024";
+
+export function signToken(payload: string): string {
+  const sig = createHmac("sha256", SESSION_SECRET).update(payload).digest("hex");
+  return `${payload}.${sig}`;
+}
+
+export function verifyToken(token: string): string | null {
+  const idx = token.lastIndexOf(".");
+  if (idx === -1) return null;
+  const payload = token.slice(0, idx);
+  const sig = token.slice(idx + 1);
+  const expectedSig = createHmac("sha256", SESSION_SECRET).update(payload).digest("hex");
+  if (sig !== expectedSig) return null;
+  return payload;
+}
 
 export type SessionUser =
   | {
@@ -69,40 +88,36 @@ function hashString(s: string): string {
 }
 
 // --- Student session ------------------------------------------------------
+// The session token is self-contained: `studentId.signature`. This means
+// even if the DB resets (Vercel cold start), the token still identifies the
+// student. We verify the signature and look up the student by ID (which
+// always exists because we use fixed IDs in the seed data).
 export async function getStudentSession(
   req: NextRequest,
 ): Promise<SessionUser | null> {
   const token = req.cookies.get(SESSION_COOKIE)?.value;
   if (!token) return null;
+  // Verify the token signature and extract the student ID.
+  const studentId = verifyToken(token);
+  if (!studentId) return null;
   // Ensure the DB schema + seed data exist (Vercel cold-start fix).
   await ensureSeeded();
-  const session = await db.session.findFirst({
-    where: {
-      deviceToken: token,
-      revoked: false,
-      expiresAt: { gt: new Date() },
-    },
-    include: { student: true },
-  });
-  if (!session) return null;
-  if (session.student.status !== "active") return null;
+  // Look up the student by ID.
+  const student = await db.student.findUnique({ where: { id: studentId } });
+  if (!student) return null;
+  if (student.status !== "active") return null;
   return {
     kind: "student",
-    id: session.student.id,
-    name: session.student.name,
-    email: session.student.email,
-    status: session.student.status,
+    id: student.id,
+    name: student.name,
+    email: student.email,
+    status: student.status,
   };
 }
 
-// --- Admin session (stored in DB so it survives across serverless instances) ---
+// --- Admin session (self-contained signed token, same approach as student) ---
 export async function createAdminSession(adminId: string): Promise<string> {
-  const token = randomBytes(32).toString("hex");
-  const expiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000); // 12 hours
-  await db.adminSession.create({
-    data: { adminId, token, expiresAt },
-  });
-  return token;
+  return signToken(`admin:${adminId}`);
 }
 
 export async function getAdminSession(
@@ -110,26 +125,24 @@ export async function getAdminSession(
 ): Promise<SessionUser | null> {
   const token = req.cookies.get(ADMIN_COOKIE)?.value;
   if (!token) return null;
+  const payload = verifyToken(token);
+  if (!payload || !payload.startsWith("admin:")) return null;
+  const adminId = payload.slice(6);
   // Ensure the DB schema + seed data exist (Vercel cold-start fix).
   await ensureSeeded();
-  const adminSession = await db.adminSession.findFirst({
-    where: { token, expiresAt: { gt: new Date() } },
-    include: { admin: true },
-  });
-  if (!adminSession) return null;
+  const admin = await db.admin.findUnique({ where: { id: adminId } });
+  if (!admin) return null;
   return {
     kind: "admin",
-    id: adminSession.admin.id,
-    username: adminSession.admin.username,
-    name: adminSession.admin.name,
+    id: admin.id,
+    username: admin.username,
+    name: admin.name,
   };
 }
 
 export async function revokeAdminSession(req: NextRequest): Promise<void> {
-  const token = req.cookies.get(ADMIN_COOKIE)?.value;
-  if (token) {
-    await db.adminSession.deleteMany({ where: { token } }).catch(() => {});
-  }
+  // No-op: tokens are stateless. To truly revoke, we'd need a blocklist.
+  // For the demo, the admin just clears the cookie client-side.
 }
 
 export async function loginAdmin(

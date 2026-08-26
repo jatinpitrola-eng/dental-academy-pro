@@ -19,13 +19,18 @@ async function doSeed(): Promise<void> {
     // First, create the schema (tables) if they don't exist.
     await ensureSchema();
 
-    // Check if admin exists.
-    const adminCount = await db.admin.count().catch(() => -1);
+    // Check if admin exists. If the table doesn't exist yet (race condition),
+    // ensureSchema should have created it. The catch handles any residual error.
+    const adminCount = await db.admin.count().catch((e) => {
+      console.error("admin count error:", e);
+      return -1;
+    });
     if (adminCount > 0) return; // already seeded
 
-    // Create master admin.
+    // Create master admin with FIXED ID so sessions survive cold starts.
     await db.admin.create({
       data: {
+        id: "admin-master",
         username: "master",
         email: "owner@dentalacademy.com",
         passwordHash: hashPassword("Admin@Dental#2024"),
@@ -34,72 +39,47 @@ async function doSeed(): Promise<void> {
       },
     });
 
-    // Create sample courses + videos.
+    // Create sample courses + videos with FIXED IDs.
     const courses = [
       {
+        id: "course-1",
         title: "Foundation of Dental Anatomy",
         description:
           "Master the core anatomical structures of the human dentition.",
         color: "#10b981",
         videos: [
-          {
-            title: "Introduction to Tooth Anatomy",
-            description: "Overview of primary and permanent dentition.",
-            youtube: "https://www.youtube.com/watch?v=O2lW3xY4YxI",
-          },
-          {
-            title: "Enamel & Dentin Structure",
-            description: "Histology of hard dental tissues.",
-            youtube: "https://youtu.be/SQy3l0O9e7I",
-          },
-          {
-            title: "Root Morphology",
-            description: "Understanding root canal systems.",
-            youtube: "https://www.youtube.com/watch?v=p7mD-43PWHk",
-          },
+          { id: "video-1-1", title: "Introduction to Tooth Anatomy", description: "Overview of primary and permanent dentition.", youtube: "https://www.youtube.com/watch?v=O2lW3xY4YxI" },
+          { id: "video-1-2", title: "Enamel & Dentin Structure", description: "Histology of hard dental tissues.", youtube: "https://youtu.be/SQy3l0O9e7I" },
+          { id: "video-1-3", title: "Root Morphology", description: "Understanding root canal systems.", youtube: "https://www.youtube.com/watch?v=p7mD-43PWHk" },
         ],
       },
       {
+        id: "course-2",
         title: "Modern Endodontics",
         description:
           "Step-by-step endodontic therapy — diagnosis, instrumentation, obturation.",
         color: "#0ea5e9",
         videos: [
-          {
-            title: "Diagnosis & Treatment Planning",
-            description: "Pulp vitality tests and radiographic assessment.",
-            youtube: "https://www.youtube.com/watch?v=2gRi3m9G3Rk",
-          },
-          {
-            title: "Rotary Instrumentation Technique",
-            description: "Hands-on rotary file systems.",
-            youtube: "https://youtu.be/J2O5M5R5oW4",
-          },
+          { id: "video-2-1", title: "Diagnosis & Treatment Planning", description: "Pulp vitality tests and radiographic assessment.", youtube: "https://www.youtube.com/watch?v=2gRi3m9G3Rk" },
+          { id: "video-2-2", title: "Rotary Instrumentation Technique", description: "Hands-on rotary file systems.", youtube: "https://youtu.be/J2O5M5R5oW4" },
         ],
       },
       {
+        id: "course-3",
         title: "Aesthetic Dentistry Masterclass",
-        description:
-          "Veneers, smile design, and composite artistry.",
+        description: "Veneers, smile design, and composite artistry.",
         color: "#f59e0b",
         videos: [
-          {
-            title: "Smile Design Principles",
-            description: "Golden proportion and facial aesthetics.",
-            youtube: "https://www.youtube.com/watch?v=5MgT4gS6l6g",
-          },
-          {
-            title: "Veneer Preparation Protocol",
-            description: "Minimally invasive prep technique.",
-            youtube: "https://youtu.be/oY2k6q1R2hY",
-          },
+          { id: "video-3-1", title: "Smile Design Principles", description: "Golden proportion and facial aesthetics.", youtube: "https://www.youtube.com/watch?v=5MgT4gS6l6g" },
+          { id: "video-3-2", title: "Veneer Preparation Protocol", description: "Minimally invasive prep technique.", youtube: "https://youtu.be/oY2k6q1R2hY" },
         ],
       },
     ];
 
     for (const [ci, c] of courses.entries()) {
-      const course = await db.course.create({
+      await db.course.create({
         data: {
+          id: c.id,
           title: c.title,
           description: c.description,
           color: c.color,
@@ -113,7 +93,8 @@ async function doSeed(): Promise<void> {
           )?.[1] || null;
         await db.video.create({
           data: {
-            courseId: course.id,
+            id: v.id,
+            courseId: c.id,
             title: v.title,
             description: v.description,
             sourceType: yt ? "youtube" : "url",
@@ -127,9 +108,10 @@ async function doSeed(): Promise<void> {
       }
     }
 
-    // Create demo student.
+    // Create demo student with FIXED ID.
     await db.student.create({
       data: {
+        id: "student-demo",
         name: "Demo Student",
         email: "demo@student.com",
         phone: "9876543210",
@@ -138,7 +120,7 @@ async function doSeed(): Promise<void> {
       },
     });
 
-    console.log("✓ Auto-seed complete");
+    console.log("✓ Auto-seed complete (fixed IDs)");
   } catch (e) {
     console.error("auto-seed error:", e);
   }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { db } from "@/lib/db";
-import { getDeviceId, getDeviceLabel, getClientIp } from "@/lib/auth";
+import { getDeviceId, getDeviceLabel, getClientIp, SESSION_COOKIE, signToken } from "@/lib/auth";
 import { ensureSeeded } from "@/lib/auto-seed";
 
 export const runtime = "nodejs";
@@ -124,7 +124,10 @@ export async function POST(req: NextRequest) {
     });
 
     const res = NextResponse.json({ ok: true });
-    res.cookies.set("da_session", deviceToken, {
+    // Use a self-contained signed token (studentId.signature) so the session
+    // survives Vercel cold starts where the DB resets.
+    const sessionToken = signToken(student.id);
+    res.cookies.set(SESSION_COOKIE, sessionToken, {
       httpOnly: true,
       sameSite: "lax",
       maxAge: 7 * 24 * 60 * 60,
