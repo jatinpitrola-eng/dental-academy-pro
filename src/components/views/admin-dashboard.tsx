@@ -1116,18 +1116,22 @@ function CoursesTab() {
   const [expandedCourse, setExpandedCourse] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    // Load courses and videos separately so if one fails, the other still
+    // loads. This prevents the whole tab from being empty if the videos API
+    // has an error.
     try {
-      const [c, v] = await Promise.all([
-        api<{ courses: CourseRow[] }>("/api/admin/courses"),
-        api<{ videos: VideoRow[] }>("/api/admin/videos"),
-      ]);
-      setCourses(c.courses);
-      setVideos(v.videos);
+      const c = await api<{ courses: CourseRow[] }>("/api/admin/courses");
+      setCourses(c.courses || []);
     } catch {
       /* ignore */
-    } finally {
-      setLoading(false);
     }
+    try {
+      const v = await api<{ videos: VideoRow[] }>("/api/admin/videos");
+      setVideos(v.videos || []);
+    } catch {
+      /* ignore */
+    }
+    setLoading(false);
   }, []);
 
   useEffect(() => {

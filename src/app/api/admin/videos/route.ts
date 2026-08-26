@@ -12,12 +12,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { searchParams } = new URL(req.url);
   const courseId = searchParams.get("courseId");
-  const videos = await db.video.findMany({
-    where: courseId ? { courseId } : undefined,
-    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-    include: { course: { select: { title: true, color: true } } },
-  });
-  return NextResponse.json({ videos });
+  try {
+    const videos = await db.video.findMany({
+      where: courseId ? { courseId } : undefined,
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      include: { course: { select: { title: true, color: true } } },
+    });
+    return NextResponse.json({ videos });
+  } catch (e) {
+    console.error("admin videos error:", e);
+    return NextResponse.json({ videos: [] });
+  }
 }
 
 export async function POST(req: NextRequest) {

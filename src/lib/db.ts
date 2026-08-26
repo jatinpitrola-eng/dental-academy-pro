@@ -135,7 +135,7 @@ export const db = {
     },
     async findMany({ where, orderBy, include }: { where?: Record<string, unknown>; orderBy?: Record<string, string>; include?: Record<string, unknown> }) {
       const { sql, args } = buildWhere(where || {});
-      const orderSql = orderBy ? ` ORDER BY "${Object.keys(orderBy)[0]}" ${Object.values(orderBy)[0]}` : "";
+      const orderParts = Array.isArray(orderBy) ? orderBy.map((o: Record<string, string>) => Object.entries(o).map(([k, v]) => `\"${k}\" ${v}`).join(", ")).join(", ") : (orderBy ? Object.entries(orderBy).map(([k, v]) => `\"${k}\" ${v}`).join(", ") : ""); const orderSql = orderParts ? ` ORDER BY ${orderParts}` : "";
       const res = await client.execute({ sql: `SELECT * FROM "Student"${sql}${orderSql}`, args });
       let students = res.rows.map(r => toCamel(r as Record<string, unknown>));
       // If include.grants, fetch grants for each student.
@@ -175,7 +175,7 @@ export const db = {
   },
   course: {
     async findMany({ orderBy, include }: { orderBy?: Record<string, string>; include?: Record<string, unknown> }) {
-      const orderSql = orderBy ? ` ORDER BY "${Object.keys(orderBy)[0]}" ${Object.values(orderBy)[0]}` : "";
+      const orderParts = Array.isArray(orderBy) ? orderBy.map((o: Record<string, string>) => Object.entries(o).map(([k, v]) => `\"${k}\" ${v}`).join(", ")).join(", ") : (orderBy ? Object.entries(orderBy).map(([k, v]) => `\"${k}\" ${v}`).join(", ") : ""); const orderSql = orderParts ? ` ORDER BY ${orderParts}` : "";
       const res = await client.execute({ sql: `SELECT * FROM "Course"${orderSql}` });
       let courses = res.rows.map(r => toCamel(r as Record<string, unknown>));
       if (include?._count) {
@@ -312,7 +312,7 @@ export const db = {
     },
     async findMany({ where, orderBy, take, include }: { where?: Record<string, unknown>; orderBy?: Record<string, string>; take?: number; include?: Record<string, unknown> }) {
       const { sql, args } = buildWhere(where || {});
-      const orderSql = orderBy ? ` ORDER BY "${Object.keys(orderBy)[0]}" ${Object.values(orderBy)[0]}` : "";
+      const orderParts = Array.isArray(orderBy) ? orderBy.map((o: Record<string, string>) => Object.entries(o).map(([k, v]) => `\"${k}\" ${v}`).join(", ")).join(", ") : (orderBy ? Object.entries(orderBy).map(([k, v]) => `\"${k}\" ${v}`).join(", ") : ""); const orderSql = orderParts ? ` ORDER BY ${orderParts}` : "";
       const limitSql = take ? ` LIMIT ${take}` : "";
       const res = await client.execute({ sql: `SELECT * FROM "OtpRequest"${sql}${orderSql}${limitSql}`, args });
       let requests = res.rows.map(r => toCamel(r as Record<string, unknown>));
@@ -348,7 +348,7 @@ export const db = {
   notification: {
     async findMany({ where, orderBy, take }: { where?: Record<string, unknown>; orderBy?: Record<string, string>; take?: number }) {
       const { sql, args } = buildWhere(where || {});
-      const orderSql = orderBy ? ` ORDER BY "${Object.keys(orderBy)[0]}" ${Object.values(orderBy)[0]}` : "";
+      const orderParts = Array.isArray(orderBy) ? orderBy.map((o: Record<string, string>) => Object.entries(o).map(([k, v]) => `\"${k}\" ${v}`).join(", ")).join(", ") : (orderBy ? Object.entries(orderBy).map(([k, v]) => `\"${k}\" ${v}`).join(", ") : ""); const orderSql = orderParts ? ` ORDER BY ${orderParts}` : "";
       const limitSql = take ? ` LIMIT ${take}` : "";
       const res = await client.execute({ sql: `SELECT * FROM "Notification"${sql}${orderSql}${limitSql}`, args });
       const notifications = res.rows.map(r => toCamel(r as Record<string, unknown>));
@@ -382,7 +382,7 @@ export const db = {
   },
   activityLog: {
     async findMany({ orderBy, take }: { orderBy?: Record<string, string>; take?: number }) {
-      const orderSql = orderBy ? ` ORDER BY "${Object.keys(orderBy)[0]}" ${Object.values(orderBy)[0]}` : "";
+      const orderParts = Array.isArray(orderBy) ? orderBy.map((o: Record<string, string>) => Object.entries(o).map(([k, v]) => `\"${k}\" ${v}`).join(", ")).join(", ") : (orderBy ? Object.entries(orderBy).map(([k, v]) => `\"${k}\" ${v}`).join(", ") : ""); const orderSql = orderParts ? ` ORDER BY ${orderParts}` : "";
       const limitSql = take ? ` LIMIT ${take}` : "";
       const res = await client.execute({ sql: `SELECT * FROM "ActivityLog"${orderSql}${limitSql}` });
       const logs = res.rows.map(r => toCamel(r as Record<string, unknown>));
@@ -405,7 +405,7 @@ export const db = {
   },
   violation: {
     async findMany({ orderBy, take }: { orderBy?: Record<string, string>; take?: number }) {
-      const orderSql = orderBy ? ` ORDER BY "${Object.keys(orderBy)[0]}" ${Object.values(orderBy)[0]}` : "";
+      const orderParts = Array.isArray(orderBy) ? orderBy.map((o: Record<string, string>) => Object.entries(o).map(([k, v]) => `\"${k}\" ${v}`).join(", ")).join(", ") : (orderBy ? Object.entries(orderBy).map(([k, v]) => `\"${k}\" ${v}`).join(", ") : ""); const orderSql = orderParts ? ` ORDER BY ${orderParts}` : "";
       const limitSql = take ? ` LIMIT ${take}` : "";
       const res = await client.execute({ sql: `SELECT * FROM "Violation"${orderSql}${limitSql}` });
       const violations = res.rows.map(r => toCamel(r as Record<string, unknown>));
