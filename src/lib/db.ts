@@ -17,14 +17,41 @@ function generateId(): string {
   return `c${timestamp}${random}`;
 }
 
-// Add createdAt to data if not present. Most tables have createdAt; some
-// also have updatedAt. We add createdAt always, and updatedAt only if the
-// data already doesn't have it AND the table likely has it (we try/catch
-// the insert to handle tables without updatedAt).
+// Add createdAt/updatedAt to data if not present. If the table doesn't have
+// updatedAt, the insert will fail and the calling code should handle it.
 function addTimestamps(data: Record<string, unknown>): Record<string, unknown> {
   const now = new Date().toISOString();
   if (!data.createdAt) data.createdAt = now;
+  if (!data.updatedAt) data.updatedAt = now;
   return data;
+}
+
+// Execute an insert. If it fails due to a missing column (updatedAt/createdAt),
+// retry without that column. Returns the inserted row if RETURNING is supported.
+async function safeInsert(table: string, data: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+  const tryInsert = async (d: Record<string, unknown>): Promise<Record<string, unknown> | null> => {
+    const keys = Object.keys(d).map(k => `"${k}"`).join(", ");
+    const placeholders = Object.keys(d).map(() => "?").join(", ");
+    const args = Object.values(d);
+    try {
+      const res = await client.execute({ sql: `INSERT INTO "${table}" (${keys}) VALUES (${placeholders}) RETURNING *`, args });
+      return res.rows[0] ? toCamel(res.rows[0] as Record<string, unknown>) : null;
+    } catch (e) {
+      const err = e as Error;
+      if (err.message.includes("updatedAt")) {
+        const filtered = { ...d };
+        delete filtered.updatedAt;
+        return tryInsert(filtered);
+      }
+      if (err.message.includes("createdAt")) {
+        const filtered = { ...d };
+        delete filtered.createdAt;
+        return tryInsert(filtered);
+      }
+      throw e;
+    }
+  };
+  return tryInsert(data);
 }
 
 
@@ -96,7 +123,7 @@ export const db = {
       const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
       const placeholders = Object.keys(data).map(() => "?").join(", ");
       const args = Object.values(data);
-      await client.execute({ sql: `INSERT INTO "Admin" (${keys}) VALUES (${placeholders})`, args });
+      await safeInsert("Admin", data);
       return data;
     },
   },
@@ -134,7 +161,7 @@ export const db = {
       const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
       const placeholders = Object.keys(data).map(() => "?").join(", ");
       const args = Object.values(data);
-      await client.execute({ sql: `INSERT INTO "Student" (${keys}) VALUES (${placeholders})`, args });
+      await safeInsert("Student", data);
       return data;
     },
     async update({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) {
@@ -175,7 +202,7 @@ export const db = {
       const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
       const placeholders = Object.keys(data).map(() => "?").join(", ");
       const args = Object.values(data);
-      await client.execute({ sql: `INSERT INTO "Course" (${keys}) VALUES (${placeholders})`, args });
+      await safeInsert("Course", data);
       return data;
     },
     async delete({ where }: { where: Record<string, unknown> }) {
@@ -220,7 +247,7 @@ export const db = {
       const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
       const placeholders = Object.keys(data).map(() => "?").join(", ");
       const args = Object.values(data);
-      await client.execute({ sql: `INSERT INTO "Video" (${keys}) VALUES (${placeholders})`, args });
+      await safeInsert("Video", data);
       return data;
     },
     async delete({ where }: { where: Record<string, unknown> }) {
@@ -267,7 +294,7 @@ export const db = {
         const keys = Object.keys(create).map(k => `"${k}"`).join(", ");
         const placeholders = Object.keys(create).map(() => "?").join(", ");
         const createArgs = Object.values(create);
-        await client.execute({ sql: `INSERT INTO "AccessGrant" (${keys}) VALUES (${placeholders})`, args: createArgs });
+        await safeInsert("AccessGrant", create);
       }
       return create;
     },
@@ -306,7 +333,7 @@ export const db = {
       const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
       const placeholders = Object.keys(data).map(() => "?").join(", ");
       const args = Object.values(data);
-      await client.execute({ sql: `INSERT INTO "OtpRequest" (${keys}) VALUES (${placeholders})`, args });
+      await safeInsert("OtpRequest", data);
       return data;
     },
     async update({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) {
@@ -343,7 +370,7 @@ export const db = {
       const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
       const placeholders = Object.keys(data).map(() => "?").join(", ");
       const args = Object.values(data);
-      await client.execute({ sql: `INSERT INTO "Notification" (${keys}) VALUES (${placeholders})`, args });
+      await safeInsert("Notification", data);
       return data;
     },
     async updateMany({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) {
@@ -372,7 +399,7 @@ export const db = {
       const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
       const placeholders = Object.keys(data).map(() => "?").join(", ");
       const args = Object.values(data);
-      await client.execute({ sql: `INSERT INTO "ActivityLog" (${keys}) VALUES (${placeholders})`, args });
+      await safeInsert("ActivityLog", data);
       return data;
     },
   },
@@ -399,7 +426,7 @@ export const db = {
       const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
       const placeholders = Object.keys(data).map(() => "?").join(", ");
       const args = Object.values(data);
-      await client.execute({ sql: `INSERT INTO "Violation" (${keys}) VALUES (${placeholders})`, args });
+      await safeInsert("Violation", data);
       return data;
     },
   },
@@ -420,7 +447,7 @@ export const db = {
         const keys = Object.keys(create).map(k => `"${k}"`).join(", ");
         const placeholders = Object.keys(create).map(() => "?").join(", ");
         const createArgs = Object.values(create);
-        await client.execute({ sql: `INSERT INTO "VideoSummary" (${keys}) VALUES (${placeholders})`, args: createArgs });
+        await safeInsert("VideoSummary", create);
       }
       return create;
     },
@@ -439,8 +466,8 @@ export const db = {
       const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
       const placeholders = Object.keys(data).map(() => "?").join(", ");
       const args = Object.values(data);
-      const res = await client.execute({ sql: `INSERT INTO "ChatMessage" (${keys}) VALUES (${placeholders}) RETURNING *`, args });
-      return res.rows[0] ? toCamel(res.rows[0] as Record<string, unknown>) : data;
+      const result = await safeInsert("ChatMessage", data);
+      return result || data;
     },
     async deleteMany({ where }: { where: Record<string, unknown> }) {
       const { sql, args } = buildWhere(where);
@@ -464,7 +491,7 @@ export const db = {
         const keys = Object.keys(create).map(k => `"${k}"`).join(", ");
         const placeholders = Object.keys(create).map(() => "?").join(", ");
         const createArgs = Object.values(create);
-        await client.execute({ sql: `INSERT INTO "WatchProgress" (${keys}) VALUES (${placeholders})`, args: createArgs });
+        await safeInsert("WatchProgress", create);
       }
       return create;
     },
@@ -480,8 +507,8 @@ export const db = {
       const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
       const placeholders = Object.keys(data).map(() => "?").join(", ");
       const args = Object.values(data);
-      const res = await client.execute({ sql: `INSERT INTO "VideoNote" (${keys}) VALUES (${placeholders}) RETURNING *`, args });
-      return res.rows[0] ? toCamel(res.rows[0] as Record<string, unknown>) : data;
+      const result = await safeInsert("VideoNote", data);
+      return result || data;
     },
     async deleteMany({ where }: { where: Record<string, unknown> }) {
       const { sql, args } = buildWhere(where);
