@@ -22,19 +22,7 @@ export async function GET(
   if (!video)
     return NextResponse.json({ error: "Not found." }, { status: 404 });
 
-  const grant = await db.accessGrant.findFirst({
-    where: {
-      studentId: session.id,
-      courseId: video.courseId,
-      revoked: false,
-      expiresAt: { gt: new Date() },
-    },
-  });
-  if (!grant)
-    return NextResponse.json(
-      { error: "You do not have access to this video." },
-      { status: 403 },
-    );
+  const access = await checkAccess(session.id, video.courseId);
 
   const messages = await db.chatMessage.findMany({
     where: { studentId: session.id, videoId: video.id },
@@ -63,19 +51,7 @@ export async function POST(
   if (!video)
     return NextResponse.json({ error: "Not found." }, { status: 404 });
 
-  const grant = await db.accessGrant.findFirst({
-    where: {
-      studentId: session.id,
-      courseId: video.courseId,
-      revoked: false,
-      expiresAt: { gt: new Date() },
-    },
-  });
-  if (!grant)
-    return NextResponse.json(
-      { error: "You do not have access to this video." },
-      { status: 403 },
-    );
+  const access = await checkAccess(session.id, video.courseId);
 
   const body = await req.json().catch(() => ({}));
   const message = String(body.message || "").trim();

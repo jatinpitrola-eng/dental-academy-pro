@@ -24,19 +24,7 @@ export async function GET(
     return NextResponse.json({ error: "Not found." }, { status: 404 });
 
   // Verify access.
-  const grant = await db.accessGrant.findFirst({
-    where: {
-      studentId: session.id,
-      courseId: video.courseId,
-      revoked: false,
-      expiresAt: { gt: new Date() },
-    },
-  });
-  if (!grant)
-    return NextResponse.json(
-      { error: "You do not have access to this video." },
-      { status: 403 },
-    );
+  const access = await checkAccess(session.id, video.courseId);
 
   // Return cached summary if it exists.
   const cached = await db.videoSummary.findUnique({
