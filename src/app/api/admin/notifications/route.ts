@@ -1,3 +1,4 @@
+import { ensureSeeded } from "@/lib/auto-seed";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/guards";

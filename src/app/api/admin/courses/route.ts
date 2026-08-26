@@ -1,3 +1,4 @@
+import { ensureSeeded } from "@/lib/auto-seed";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/guards";
@@ -7,6 +8,7 @@ export const runtime = "nodejs";
 export async function GET(req: NextRequest) {
   if (!(await requireAdmin(req)))
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  await ensureSeeded();
   const courses = await db.course.findMany({
     orderBy: { sortOrder: "asc" },
     include: { _count: { select: { videos: true, grants: true } } },
