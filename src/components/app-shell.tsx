@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useApp, getTabRole } from "@/lib/store";
 import { api } from "@/lib/api";
 import { SecurityGuard } from "./security-guard";
@@ -89,16 +89,26 @@ export function AppShell() {
   };
 
   const isStandaloneView = view === "admin-dashboard";
+  const [introDone, setIntroDone] = useState(false);
+
+  // Set introDone after 15 seconds (intro video is ~10s + buffer).
+  useEffect(() => {
+    const t = setTimeout(() => setIntroDone(true), 15000);
+    return () => clearTimeout(t);
+  }, []);
 
   return (
-    <IntroGate>
-      <div className="app-ambient flex min-h-screen flex-col">
-        <SecurityGuard studentId={student?.id} studentName={student?.name}>
-          <main className="flex w-full flex-1 flex-col">{renderView()}</main>
-        </SecurityGuard>
-        {!isStandaloneView && <SiteFooter />}
-        <PwaInstallPrompt />
-      </div>
-    </IntroGate>
+    <>
+      <IntroGate>
+        <div className="app-ambient flex min-h-screen flex-col">
+          <SecurityGuard studentId={student?.id} studentName={student?.name}>
+            <main className="flex w-full flex-1 flex-col">{renderView()}</main>
+          </SecurityGuard>
+          {!isStandaloneView && <SiteFooter />}
+        </div>
+      </IntroGate>
+      {/* Install prompt shows only after intro finishes + 2s delay */}
+      {introDone && <PwaInstallPrompt />}
+    </>
   );
 }
