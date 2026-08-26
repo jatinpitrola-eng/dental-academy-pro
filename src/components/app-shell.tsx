@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { useApp, getTabRole, setTabRoleStorage } from "@/lib/store";
+import { useApp, getTabRole } from "@/lib/store";
 import { api } from "@/lib/api";
 import { SecurityGuard } from "./security-guard";
 import { IntroGate } from "./intro-gate";
@@ -22,16 +22,14 @@ export function AppShell() {
   const setStudent = useApp((s) => s.setStudent);
   const setAdmin = useApp((s) => s.setAdmin);
   const setView = useApp((s) => s.setView);
-  const tabRole = useApp((s) => s.tabRole);
   const setTabRoleState = useApp((s) => s.setTabRole);
 
-  // On first load: read the per-tab role from sessionStorage, then verify the
-  // matching session cookie. This keeps an admin tab and a student tab isolated
-  // even within the same browser (cookies are shared, role is per-tab).
+  // On first load: check sessionStorage for a per-tab role. If set, resume
+  // ONLY that role's session. If not set (fresh tab), ALWAYS show the landing
+  // page — the user must explicitly choose to sign in as student or admin.
+  // This prevents admin tabs from "leaking" into student tabs via shared cookies.
   useEffect(() => {
-    // Manually rehydrate the persisted store (skipped during SSR).
     useApp.persist?.rehydrate?.();
-
     const role = getTabRole();
     setTabRoleState(role);
 
@@ -71,38 +69,10 @@ export function AppShell() {
         return;
       }
 
-      // No role set yet — this is a fresh tab. If an admin cookie exists from a
-      // previous session, auto-enter admin only if there's no student cookie
-      // (prefer student role for public-facing tabs). Otherwise just show
-      // landing so the user picks what to do.
-      let hasAdmin = false;
-      let hasStudent = false;
-      try {
-        const a = await api<{ admin: unknown }>("/api/admin/session");
-        hasAdmin = !!a.admin;
-      } catch {
-        /* ignore */
-      }
-      try {
-        const s = await api<{ user: unknown }>("/api/auth/session");
-        hasStudent = !!s.user;
-      } catch {
-        /* ignore */
-      }
-      if (hasStudent && !hasAdmin) {
-        // student-only — resume student
-        const s = await api<{ user: unknown }>("/api/auth/session");
-        setStudent(s.user as never);
-        setTabRoleState("student");
-        setView("student-dashboard");
-      } else if (hasAdmin && !hasStudent) {
-        // admin-only — resume admin
-        const a = await api<{ admin: unknown }>("/api/admin/session");
-        setAdmin(a.admin as never);
-        setTabRoleState("admin");
-        setView("admin-dashboard");
-      }
-      // If both or neither → stay on landing (user chooses explicitly).
+      // No role set → fresh tab. ALWAYS show landing. Do NOT auto-resume
+      // any session — the user must explicitly click "Sign in" (student)
+      // or the logo 5 times (admin) to choose a role for this tab.
+      setView("landing");
     })();
   }, [setStudent, setAdmin, setView, setTabRoleState]);
 
