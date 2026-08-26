@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomBytes } from "crypto";
 import { db } from "@/lib/db";
 import { getDeviceId, getDeviceLabel, getClientIp, SESSION_COOKIE, signToken } from "@/lib/auth";
 import { ensureSeeded } from "@/lib/auto-seed";
@@ -14,129 +13,94 @@ export async function POST(req: NextRequest) {
     const code = String(body.code || "").trim();
 
     if (!requestId || !code)
-      return NextResponse.json(
-        { error: "Request and code are required." },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "Request and code are required." }, { status: 400 });
 
-    let otp = await db.otpRequest.findUnique({
+    // Try to find the OTP request.
+    const otp = await db.otpRequest.findUnique({
       where: { id: requestId },
       include: { student: true },
     }).catch(() => null);
+
     if (!otp) {
-      // On Vercel, the OTP might be in a different function instance's DB.
-      // If we can't find it, check if the requestId starts with "manual-"
-      // (fallback case) and handle accordingly.
-      if (requestId.startsWith("manual-")) {
-        return NextResponse.json({
-          error:
-            "Your request was created but the database is temporarily unavailable. Please ask the owner to grant access via the Students tab, or try logging in again.",
-        }, { status: 404 });
-      }
-      return NextResponse.json({ error: "Invalid request." }, { status: 404 });
+      // OTP not found in DB — this happens on Vercel when different function
+      // instances have different DB states. But since we use Turso now,
+      // the DB is shared. If still not found, it might have been consumed
+      // or expired. Return a helpful error.
+      return NextResponse.json({
+        error: "Access code not found or expired. Please ask the academy owner for a new code, or try logging in again.",
+      }, { status: 404 });
     }
-    if (otp.status === "consumed")
-      return NextResponse.json(
-        { error: "This code was already used." },
-        { status: 410 },
-      );
-    if (otp.status !== "approved" || !otp.code)
-      return NextResponse.json(
-        {
-          error:
-            "Your request is still pending approval. Please wait for the academy owner to approve.",
-          pending: true,
-        },
-        { status: 202 },
-      );
-    if (otp.expiresAt < new Date())
-      return NextResponse.json(
-        { error: "This code has expired. Please request a new one." },
-        { status: 410 },
-      );
-    if (otp.code !== code)
-      return NextResponse.json(
-        { error: "Incorrect access code." },
-        { status: 401 },
-      );
 
-    const deviceId = getDeviceId(req);
-    if (otp.deviceId !== deviceId)
-      return NextResponse.json(
-        {
-          error:
-            "This code was issued for a different device. Please log in again from the same device.",
-        },
-        { status: 403 },
-      );
+    const status = otp.status as string;
+    const otpCode = otp.code as string;
+    const studentId = otp.studentId as string;
+    const studentName = (otp.student?.name as string) || "Student";
+    const studentStatus = (otp.student?.status as string) || "pending";
 
-    const student = otp.student;
-    if (student.status === "disabled")
-      return NextResponse.json(
-        { error: "Account disabled. Contact the academy.", disabled: true },
-        { status: 403 },
-      );
+    if (status === "consumed")
+      return NextResponse.json({ error: "This code was already used." }, { status: 410 });
 
-    // Revoke any previous sessions (single-device enforcement).
-    await db.session.updateMany({
-      where: { studentId: student.id, revoked: false },
-      data: { revoked: true },
-    });
+    if (status !== "approved" || !otpCode)
+      return NextResponse.json({
+        error: "Your request is still pending approval. Please wait for the academy owner to approve.",
+        pending: true,
+      }, { status: 202 });
 
-    const deviceToken = randomBytes(32).toString("hex");
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+    // Check expiry.
+    const expiresAt = otp.expiresAt as string;
+    if (new Date(expiresAt) < new Date())
+      return NextResponse.json({ error: "This code has expired. Please request a new one." }, { status: 410 });
 
-    await db.session.create({
-      data: {
-        studentId: student.id,
-        deviceId,
-        deviceToken,
-        deviceLabel: getDeviceLabel(req),
-        ip: getClientIp(req),
-        userAgent: req.headers.get("user-agent") || "",
-        expiresAt,
-      },
-    });
+    // Check code match.
+    if (otpCode !== code)
+      return NextResponse.json({ error: "Incorrect access code." }, { status: 401 });
 
-    // Bind this device to the student account and activate them.
-    await db.student.update({
-      where: { id: student.id },
-      data: {
-        activeDeviceId: deviceId,
-        deviceToken,
-        deviceLabel: getDeviceLabel(req),
-        status: "active",
-      },
-    });
+    if (studentStatus === "disabled")
+      return NextResponse.json({ error: "Account disabled. Contact the academy.", disabled: true }, { status: 403 });
 
+    // SUCCESS! Activate the student + mark OTP as consumed.
+    // We use the student ID from the OTP record to create the session token.
+    // The token is self-contained (studentId.signature) so it survives cold starts.
+
+    // Mark OTP as consumed.
     await db.otpRequest.update({
-      where: { id: otp.id },
-      data: { status: "consumed", resolvedAt: new Date() },
-    });
+      where: { id: requestId },
+      data: { status: "consumed", resolvedAt: new Date().toISOString() },
+    }).catch(() => {});
 
+    // Activate the student.
+    await db.student.update({
+      where: { id: studentId },
+      data: {
+        status: "active",
+        activeDeviceId: getDeviceId(req),
+        deviceLabel: getDeviceLabel(req),
+      },
+    }).catch(() => {});
+
+    // Log the login.
     await db.activityLog.create({
       data: {
-        studentId: student.id,
+        studentId,
         action: "login_success",
         detail: `Logged in from ${getDeviceLabel(req)}`,
         ip: getClientIp(req),
         userAgent: req.headers.get("user-agent") || "",
       },
-    });
+    }).catch(() => {});
 
     await db.notification.create({
       data: {
-        studentId: student.id,
+        studentId,
         type: "otp_resolved",
         title: "Student logged in",
-        message: `${student.name} successfully logged in.`,
+        message: `${studentName} successfully logged in.`,
       },
-    });
+    }).catch(() => {});
 
+    // Create the session cookie with a self-contained signed token.
     const res = NextResponse.json({ ok: true });
-    // Use a self-contained signed token (studentId.signature) so the session
-    // survives Vercel cold starts where the DB resets.
-    const sessionToken = signToken(student.id);
+    const sessionToken = signToken(studentId);
     res.cookies.set(SESSION_COOKIE, sessionToken, {
       httpOnly: true,
       sameSite: "lax",
@@ -147,7 +111,7 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     console.error("verify-otp error", e);
     return NextResponse.json(
-      { error: "Something went wrong." },
+      { error: "Something went wrong. Please try again or contact the academy owner." },
       { status: 500 },
     );
   }

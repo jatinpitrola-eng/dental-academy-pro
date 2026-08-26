@@ -71,7 +71,21 @@ function buildWhere(filter: Record<string, unknown>): { sql: string; args: unkno
   const args: unknown[] = [];
   for (const [k, v] of Object.entries(filter)) {
     if (v === null || v === undefined) continue;
-    if (typeof v === "object" && v !== null) {
+    // Handle compound keys (e.g., studentId_courseId: { studentId, courseId }).
+    if (k.includes("_") && typeof v === "object" && v !== null && !Array.isArray(v)) {
+      const compound = v as Record<string, unknown>;
+      const isCompoundKey = Object.keys(compound).every(
+        (ck) => typeof compound[ck] === "string" || typeof compound[ck] === "number",
+      );
+      if (isCompoundKey) {
+        for (const [ck, cv] of Object.entries(compound)) {
+          parts.push(`"${ck}" = ?`);
+          args.push(cv);
+        }
+        continue;
+      }
+    }
+    if (typeof v === "object" && v !== null && !Array.isArray(v)) {
       // Handle Prisma-like operators: { gt: value }, { lt: value }, etc.
       const ops = v as Record<string, unknown>;
       for (const [op, opVal] of Object.entries(ops)) {

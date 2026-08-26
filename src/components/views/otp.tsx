@@ -56,7 +56,7 @@ export function OtpView() {
         /* ignore */
       }
     };
-    const t = setInterval(poll, 4000);
+    const t = setInterval(poll, 2000);
     return () => {
       active = false;
       clearInterval(t);
