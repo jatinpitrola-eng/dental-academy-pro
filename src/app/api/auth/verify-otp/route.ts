@@ -19,12 +19,22 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
 
-    const otp = await db.otpRequest.findUnique({
+    let otp = await db.otpRequest.findUnique({
       where: { id: requestId },
       include: { student: true },
-    });
-    if (!otp)
+    }).catch(() => null);
+    if (!otp) {
+      // On Vercel, the OTP might be in a different function instance's DB.
+      // If we can't find it, check if the requestId starts with "manual-"
+      // (fallback case) and handle accordingly.
+      if (requestId.startsWith("manual-")) {
+        return NextResponse.json({
+          error:
+            "Your request was created but the database is temporarily unavailable. Please ask the owner to grant access via the Students tab, or try logging in again.",
+        }, { status: 404 });
+      }
       return NextResponse.json({ error: "Invalid request." }, { status: 404 });
+    }
     if (otp.status === "consumed")
       return NextResponse.json(
         { error: "This code was already used." },
