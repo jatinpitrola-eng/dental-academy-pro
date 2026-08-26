@@ -15,9 +15,15 @@ export async function GET(req: NextRequest) {
   try {
     const videos = await db.video.findMany({
       where: courseId ? { courseId } : undefined,
-      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-      include: { course: { select: { title: true, color: true } } },
+      orderBy: { sortOrder: "asc" },
     });
+    // For each video, fetch course info separately.
+    for (const v of videos) {
+      if (v.courseId) {
+        const course = await db.course.findUnique({ where: { id: v.courseId as string } }).catch(() => null);
+        v.course = course ? { title: course.title as string, color: course.color as string | null } : null;
+      }
+    }
     return NextResponse.json({ videos });
   } catch (e) {
     console.error("admin videos error:", e);

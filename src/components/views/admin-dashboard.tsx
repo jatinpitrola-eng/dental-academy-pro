@@ -1108,6 +1108,7 @@ type VideoRow = {
   sourceType: string;
   sourceUrl: string;
   duration: number;
+  courseId?: string;
   course?: { title: string; color: string | null };
 };
 
@@ -1166,9 +1167,13 @@ function CoursesTab() {
   const editVideo = async (v: VideoRow) => {
     const title = prompt("Video title:", v.title);
     if (title === null) return;
+    const sourceUrl = prompt("Video URL (YouTube link or direct .mp4):", v.sourceUrl);
+    if (sourceUrl === null) return;
+    const data: Record<string, unknown> = { id: v.id, title: title.trim() };
+    if (sourceUrl.trim()) data.sourceUrl = sourceUrl.trim();
     await api("/api/admin/videos", {
       method: "PATCH",
-      body: JSON.stringify({ id: v.id, title: title.trim() }),
+      body: JSON.stringify(data),
     });
     load();
   };
@@ -1210,8 +1215,9 @@ function CoursesTab() {
         )}
         {courses.map((c) => {
           const open = expandedCourse === c.id;
+          // Match videos by courseId, not by course title (title matching is unreliable).
           const vids = videos.filter(
-            (v) => v.course?.title === c.title,
+            (v) => v.courseId === c.id || v.course?.title === c.title,
           );
           const videoCount = c._count?.videos ?? vids.length;
           const grantCount = c._count?.grants ?? 0;
