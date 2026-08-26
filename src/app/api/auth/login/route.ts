@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { hashPassword, generateToken } from "@/lib/crypto";
 import { getDeviceId, getDeviceLabel, getClientIp } from "@/lib/auth";
+import { ensureSeeded } from "@/lib/auto-seed";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
+    await ensureSeeded();
     const body = await req.json().catch(() => ({}));
     const email = String(body.email || "").trim().toLowerCase();
     const password = String(body.password || "");

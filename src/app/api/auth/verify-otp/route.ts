@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { db } from "@/lib/db";
 import { getDeviceId, getDeviceLabel, getClientIp } from "@/lib/auth";
+import { ensureSeeded } from "@/lib/auto-seed";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
+    await ensureSeeded();
     const body = await req.json().catch(() => ({}));
     const requestId = String(body.requestId || "");
     const code = String(body.code || "").trim();

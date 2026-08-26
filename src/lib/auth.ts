@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { randomBytes } from "crypto";
 import { db } from "./db";
 import { verifyPassword } from "./crypto";
+import { ensureSeeded } from "./auto-seed";
 
 export type SessionUser =
   | {
@@ -73,6 +74,8 @@ export async function getStudentSession(
 ): Promise<SessionUser | null> {
   const token = req.cookies.get(SESSION_COOKIE)?.value;
   if (!token) return null;
+  // Ensure the DB schema + seed data exist (Vercel cold-start fix).
+  await ensureSeeded();
   const session = await db.session.findFirst({
     where: {
       deviceToken: token,
@@ -92,12 +95,13 @@ export async function getStudentSession(
   };
 }
 
-// --- Admin session --------------------------------------------------------
-const ADMIN_TOKENS = new Map<string, string>(); // token -> adminId (in-memory)
-
+// --- Admin session (stored in DB so it survives across serverless instances) ---
 export async function createAdminSession(adminId: string): Promise<string> {
   const token = randomBytes(32).toString("hex");
-  ADMIN_TOKENS.set(token, adminId);
+  const expiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000); // 12 hours
+  await db.adminSession.create({
+    data: { adminId, token, expiresAt },
+  });
   return token;
 }
 
@@ -106,27 +110,34 @@ export async function getAdminSession(
 ): Promise<SessionUser | null> {
   const token = req.cookies.get(ADMIN_COOKIE)?.value;
   if (!token) return null;
-  const adminId = ADMIN_TOKENS.get(token);
-  if (!adminId) return null;
-  const admin = await db.admin.findUnique({ where: { id: adminId } });
-  if (!admin) return null;
+  // Ensure the DB schema + seed data exist (Vercel cold-start fix).
+  await ensureSeeded();
+  const adminSession = await db.adminSession.findFirst({
+    where: { token, expiresAt: { gt: new Date() } },
+    include: { admin: true },
+  });
+  if (!adminSession) return null;
   return {
     kind: "admin",
-    id: admin.id,
-    username: admin.username,
-    name: admin.name,
+    id: adminSession.admin.id,
+    username: adminSession.admin.username,
+    name: adminSession.admin.name,
   };
 }
 
 export async function revokeAdminSession(req: NextRequest): Promise<void> {
   const token = req.cookies.get(ADMIN_COOKIE)?.value;
-  if (token) ADMIN_TOKENS.delete(token);
+  if (token) {
+    await db.adminSession.deleteMany({ where: { token } }).catch(() => {});
+  }
 }
 
 export async function loginAdmin(
   identifier: string,
   password: string,
 ): Promise<{ id: string; username: string; name: string | null } | null> {
+  // Ensure the DB schema + seed data exist (Vercel cold-start fix).
+  await ensureSeeded();
   // Allow login by either email or username.
   const admin = await db.admin.findFirst({
     where: {

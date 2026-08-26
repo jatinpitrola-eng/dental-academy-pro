@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { ensureSeeded } from "@/lib/auto-seed";
 
 export const runtime = "nodejs";
 
-// Lightweight status check used by the student OTP screen to know when the
-// admin has approved (without exposing the code).
 export async function GET(req: NextRequest) {
+  await ensureSeeded();
   const id = new URL(req.url).searchParams.get("id");
   if (!id)
     return NextResponse.json({ error: "id required" }, { status: 400 });

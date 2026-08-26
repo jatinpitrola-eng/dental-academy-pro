@@ -31,6 +31,14 @@ async function doCreateSchema(): Promise<void> {
         "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         "updatedAt" DATETIME NOT NULL
       )`,
+      `CREATE TABLE IF NOT EXISTS "AdminSession" (
+        "id" TEXT PRIMARY KEY NOT NULL,
+        "adminId" TEXT NOT NULL,
+        "token" TEXT NOT NULL UNIQUE,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "expiresAt" DATETIME NOT NULL,
+        FOREIGN KEY ("adminId") REFERENCES "Admin"("id") ON DELETE CASCADE
+      )`,
       `CREATE TABLE IF NOT EXISTS "Student" (
         "id" TEXT PRIMARY KEY NOT NULL,
         "name" TEXT NOT NULL,
@@ -191,6 +199,7 @@ async function doCreateSchema(): Promise<void> {
       `CREATE INDEX IF NOT EXISTS "AccessGrant_studentId_idx" ON "AccessGrant"("studentId")`,
       `CREATE INDEX IF NOT EXISTS "OtpRequest_studentId_idx" ON "OtpRequest"("studentId")`,
       `CREATE INDEX IF NOT EXISTS "Notification_read_idx" ON "Notification"("read")`,
+      `CREATE INDEX IF NOT EXISTS "AdminSession_adminId_idx" ON "AdminSession"("adminId")`,
       `CREATE INDEX IF NOT EXISTS "ChatMessage_studentId_videoId_idx" ON "ChatMessage"("studentId", "videoId")`,
       `CREATE INDEX IF NOT EXISTS "WatchProgress_studentId_videoId_idx" ON "WatchProgress"("studentId", "videoId")`,
       `CREATE INDEX IF NOT EXISTS "VideoNote_studentId_videoId_idx" ON "VideoNote"("studentId", "videoId")`,
