@@ -497,7 +497,7 @@ function ChatTab({ videoId }: { videoId: string }) {
                 </div>
                 <div
                   className={cn(
-                    "max-w-[80%] rounded-2xl px-3.5 py-2 text-sm",
+                    "max-w-[85%] overflow-hidden break-words rounded-2xl px-3.5 py-2 text-sm",
                     m.role === "user"
                       ? "rounded-tr-sm bg-primary text-primary-foreground"
                       : "rounded-tl-sm bg-muted",
@@ -558,14 +558,14 @@ function ChatTab({ videoId }: { videoId: string }) {
       </ScrollArea>
 
       <div className="border-t border-border/60 p-3">
-        <div className="flex items-end gap-2">
+        <div className="flex items-end gap-2 overflow-hidden">
           {/* Mic button — toggle recording */}
           <Button
             onClick={recording ? stopRecording : startRecording}
             disabled={transcribing || sending}
             size="icon"
             variant={recording ? "destructive" : "outline"}
-            className="shrink-0"
+            className="shrink-0 border-border"
             title={recording ? "Stop recording" : "Speak your question"}
           >
             {recording ? (
@@ -589,9 +589,9 @@ function ChatTab({ videoId }: { videoId: string }) {
                 : "Ask Dr. Sage anything, or tap the mic to speak…"
             }
             rows={1}
-            className="max-h-32 resize-none"
+            className="min-w-0 max-h-32 resize-none border-border"
           />
-          <Button onClick={send} disabled={sending || !input.trim()} size="icon" className="shrink-0">
+          <Button onClick={send} disabled={sending || !input.trim()} size="icon" className="shrink-0 border-border">
             {sending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (

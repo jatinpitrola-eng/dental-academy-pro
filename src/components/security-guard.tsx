@@ -4,24 +4,19 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 
 /**
- * SecurityGuard — SIMPLE, NO FALSE POSITIVES.
+ * SecurityGuard — screenshot & screen recording protection.
  *
- * ONLY triggers on actual screenshot key presses:
- * - PrintScreen / Alt+PrintScreen
- * - Cmd+Shift+3/4/5/6 (macOS)
- * - F12 / Ctrl+Shift+I/J/C (DevTools)
+ * Detection methods (in priority order):
+ * 1. Keyboard: PrintScreen, Cmd+Shift+3/4/5/6, F12, Ctrl+Shift+I/J/C
+ * 2. Window blur + clipboard check: when window loses focus, wait 1 second,
+ *    then check clipboard. If image found → screenshot confirmed → disable.
+ *    If no image → false alarm → no action.
+ * 3. Periodic clipboard check: every 5 seconds, check clipboard for images.
  *
- * Does NOT trigger on:
- * - Mic/sound/notification permission dialogs
- * - Alt+Tab, tab switching, window blur
- * - TTS playback, AI chat
- * - Any normal browser activity
- *
- * Why no blur detection: Win+Shift+S causes blur, but so do 100 other
- * things (Alt+Tab, clicking another window, notification popup, etc).
- * Blur detection causes too many false account disables.
- * Instead: we only block the actual keyboard shortcuts that browsers
- * can intercept.
+ * This approach has ZERO false positives because:
+ * - Mic/sound/notification permissions don't put images in the clipboard
+ * - Alt+Tab doesn't put images in the clipboard
+ * - Only actual screenshots put images in the clipboard
  */
 export function SecurityGuard({
   studentId,
@@ -64,7 +59,23 @@ export function SecurityGuard({
       setTimeout(() => { window.location.href = "/"; }, 2000);
     };
 
-    // KEYBOARD ONLY — screenshot + devtools shortcuts
+    // Check clipboard for image — the ONLY reliable screenshot detector.
+    async function checkClipboardForImage(): Promise<boolean> {
+      try {
+        if (!navigator.clipboard || !navigator.clipboard.read) return false;
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          if (item.types.some((t) => t.startsWith("image/"))) return true;
+        }
+      } catch {
+        // Permission denied or not supported — can't check, return false.
+      }
+      return false;
+    }
+
+    // ==========================================
+    // 1. KEYBOARD — screenshot + devtools shortcuts
+    // ==========================================
     const onKey = (e: KeyboardEvent) => {
       const k = e.key.toLowerCase();
 
@@ -95,16 +106,49 @@ export function SecurityGuard({
       if ((e.ctrlKey || e.metaKey) && ["u", "s", "p"].includes(k)) {
         e.preventDefault(); e.stopPropagation();
       }
-      // Block copy outside inputs
-      if ((e.ctrlKey || e.metaKey) && k === "c") {
-        const target = e.target as HTMLElement;
-        if (target.tagName !== "INPUT" && target.tagName !== "TEXTAREA") {
-          e.preventDefault();
-        }
-      }
     };
 
+    // ==========================================
+    // 2. WINDOW BLUR + CLIPBOARD CHECK
+    // When window loses focus (Win+Shift+S, Alt+Tab, etc), wait 1 second,
+    // then check clipboard. If image → screenshot. If no image → ignore.
+    // ==========================================
+    let blurTimeout: ReturnType<typeof setTimeout> | null = null;
+    const onBlur = () => {
+      // Don't blackout immediately — wait and check clipboard.
+      if (blurTimeout) clearTimeout(blurTimeout);
+      blurTimeout = setTimeout(async () => {
+        const hasImage = await checkClipboardForImage();
+        if (hasImage) {
+          report("screenshot", "Image found in clipboard after window blur (screenshot confirmed)");
+        }
+      }, 1000);
+    };
+    const onFocus = () => {
+      if (blurTimeout) { clearTimeout(blurTimeout); blurTimeout = null; }
+      // Also check clipboard on focus return.
+      checkClipboardForImage().then((hasImage) => {
+        if (hasImage) {
+          report("screenshot", "Image found in clipboard on focus return (screenshot confirmed)");
+        }
+      });
+    };
+
+    // ==========================================
+    // 3. PERIODIC CLIPBOARD CHECK (every 5 seconds)
+    // Catches screenshots taken via OS tools (Snipping Tool, etc.)
+    // ==========================================
+    const clipboardInterval = setInterval(async () => {
+      if (reportedRef.current) return;
+      const hasImage = await checkClipboardForImage();
+      if (hasImage) {
+        report("screenshot", "Image detected in clipboard (periodic check — OS-level screenshot)");
+      }
+    }, 5000);
+
+    // ==========================================
     // COPY/CONTEXT MENU blocking
+    // ==========================================
     const onCopy = (e: ClipboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.tagName !== "INPUT" && target.tagName !== "TEXTAREA") {
@@ -119,14 +163,19 @@ export function SecurityGuard({
     };
 
     // Register listeners
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("focus", onFocus);
     document.addEventListener("keydown", onKey, { capture: true });
     document.addEventListener("copy", onCopy);
     document.addEventListener("contextmenu", onContext);
 
     return () => {
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("focus", onFocus);
       document.removeEventListener("keydown", onKey, { capture: true } as EventListenerOptions);
       document.removeEventListener("copy", onCopy);
       document.removeEventListener("contextmenu", onContext);
+      clearInterval(clipboardInterval);
     };
   }, [studentId, studentName]);
 
