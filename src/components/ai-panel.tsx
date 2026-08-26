@@ -34,6 +34,8 @@ import {
   Square,
   Volume2,
   VolumeX,
+  Copy,
+  Check,
 } from "lucide-react";
 
 type SummaryData = {
