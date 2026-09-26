@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useApp, getTabRole } from "@/lib/store";
 import { api } from "@/lib/api";
 import { SecurityGuard } from "./security-guard";
@@ -89,13 +89,6 @@ export function AppShell() {
   };
 
   const isStandaloneView = view === "admin-dashboard";
-  const [introDone, setIntroDone] = useState(false);
-
-  // Set introDone after 15 seconds (intro video is ~10s + buffer).
-  useEffect(() => {
-    const t = setTimeout(() => setIntroDone(true), 15000);
-    return () => clearTimeout(t);
-  }, []);
 
   return (
     <>
@@ -107,8 +100,8 @@ export function AppShell() {
           {!isStandaloneView && <SiteFooter />}
         </div>
       </IntroGate>
-      {/* Install prompt shows only after intro finishes + 2s delay */}
-      {introDone && <PwaInstallPrompt />}
+      {/* Install prompt always available (handles own visibility) */}
+      <PwaInstallPrompt />
     </>
   );
 }
