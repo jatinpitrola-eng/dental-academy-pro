@@ -60,6 +60,45 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Capture all errors BEFORE any React code runs, so we can debug
+            production-only crashes. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              window.__ERRS__ = [];
+              window.addEventListener('error', function(e) {
+                window.__ERRS__.push({
+                  type: 'error',
+                  message: e.message,
+                  filename: e.filename,
+                  lineno: e.lineno,
+                  colno: e.colno,
+                  stack: e.error && e.error.stack ? e.error.stack : null,
+                  errorObj: e.error ? (e.error.message + ' | ' + e.error.name) : null
+                });
+              });
+              window.addEventListener('unhandledrejection', function(e) {
+                window.__ERRS__.push({
+                  type: 'unhandledrejection',
+                  reason: e.reason ? (e.reason.message || String(e.reason)) : String(e.reason),
+                  stack: e.reason && e.reason.stack ? e.reason.stack : null
+                });
+              });
+              // Override console.error to capture React's error logging.
+              var origConsoleError = console.error;
+              console.error = function() {
+                var args = Array.prototype.slice.call(arguments);
+                window.__ERRS__.push({
+                  type: 'console.error',
+                  message: args.map(function(a) { try { return typeof a === 'string' ? a : JSON.stringify(a); } catch(e) { return String(a); } }).join(' ')
+                });
+                origConsoleError.apply(console, args);
+              };
+            `,
+          }}
+        />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >
