@@ -56,3 +56,4 @@ server.log
 /upload/
 /db/*.db
 /db/*.db-journal
+trace.zip
