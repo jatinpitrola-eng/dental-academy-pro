@@ -186,6 +186,12 @@ async function doCreateSchema(): Promise<void> {
         FOREIGN KEY ("studentId") REFERENCES "Student"("id") ON DELETE CASCADE,
         FOREIGN KEY ("videoId") REFERENCES "Video"("id") ON DELETE CASCADE
       )`,
+      // CMS table — stores admin-editable site content (landing page text, video URL, etc.)
+      `CREATE TABLE IF NOT EXISTS "AppContent" (
+        "id" TEXT PRIMARY KEY NOT NULL,
+        "data" TEXT NOT NULL,
+        "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
     ];
 
     for (const sql of statements) {

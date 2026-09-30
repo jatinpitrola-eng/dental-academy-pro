@@ -1,0 +1,572 @@
+     1→import { createClient, type Client } from "@libsql/client";
+     2→
+     3→// Turso database credentials.
+     4→const TURSO_URL = "libsql://dental-academy-jatinpitrola-eng.aws-ap-south-1.turso.io";
+     5→const TURSO_AUTH_TOKEN =
+     6→  "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODc3MzM5NDcsImlkIjoiMDFhMDNkM2QtZjIwMS03ZDE2LWIwOTQtMzcyNmMxMDcwODNiIiwia2lkIjoiSUZMcWF5Z3dwYjRUd2lwZURrYUtaanpXTUJKSkxJMTIzaWFsWUhUZnIwayIsInJpZCI6Ijk1MzE1NTY5LTU3ZGEtNDk0ZS1iZGI5LWQ2MWYyNzhhMGY1YiJ9.fmMIcFjKgNVFim0UF79LazrSplUECpae2ET3t_3DrrVZ-sYJwEKNpK0T4CiKWahtx_uGLzvmllG7PX-7WbN7Cg";
+     7→
+     8→const client: Client = createClient({
+     9→  url: TURSO_URL,
+    10→  authToken: TURSO_AUTH_TOKEN,
+    11→});
+    12→
+    13→// Generate a CUID-like ID (since we're not using Prisma's auto-generation).
+    14→function generateId(): string {
+    15→  const timestamp = Date.now().toString(36);
+    16→  const random = Math.random().toString(36).slice(2, 10);
+    17→  return `c${timestamp}${random}`;
+    18→}
+    19→
+    20→// Add createdAt/updatedAt to data if not present. If the table doesn't have
+    21→// updatedAt, the insert will fail and the calling code should handle it.
+    22→function addTimestamps(data: Record<string, unknown>): Record<string, unknown> {
+    23→  const now = new Date().toISOString();
+    24→  if (!data.createdAt) data.createdAt = now;
+    25→  if (!data.updatedAt) data.updatedAt = now;
+    26→  return data;
+    27→}
+    28→
+    29→// Execute an insert. If it fails due to a missing column (updatedAt/createdAt),
+    30→// retry without that column. Returns the inserted row if RETURNING is supported.
+    31→async function safeInsert(table: string, data: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+    32→  // Ensure data has an id — many tables require it.
+    33→  if (!data.id) data.id = generateId();
+    34→  addTimestamps(data);
+    35→  const tryInsert = async (d: Record<string, unknown>): Promise<Record<string, unknown> | null> => {
+    36→    const keys = Object.keys(d).map(k => `"${k}"`).join(", ");
+    37→    const placeholders = Object.keys(d).map(() => "?").join(", ");
+    38→    const args = Object.values(d);
+    39→    try {
+    40→      const res = await client.execute({ sql: `INSERT INTO "${table}" (${keys}) VALUES (${placeholders}) RETURNING *`, args });
+    41→      return res.rows[0] ? toCamel(res.rows[0] as Record<string, unknown>) : null;
+    42→    } catch (e) {
+    43→      const err = e as Error;
+    44→      if (err.message.includes("updatedAt")) {
+    45→        const filtered = { ...d };
+    46→        delete filtered.updatedAt;
+    47→        return tryInsert(filtered);
+    48→      }
+    49→      if (err.message.includes("createdAt")) {
+    50→        const filtered = { ...d };
+    51→        delete filtered.createdAt;
+    52→        return tryInsert(filtered);
+    53→      }
+    54→      throw e;
+    55→    }
+    56→  };
+    57→  return tryInsert(data);
+    58→}
+    59→
+    60→
+    61→// Helper: convert snake_case DB rows to camelCase objects (like Prisma does).
+    62→function toCamel(row: Record<string, unknown>): Record<string, unknown> {
+    63→  const out: Record<string, unknown> = {};
+    64→  for (const [k, v] of Object.entries(row)) {
+    65→    const camelKey = k.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    66→    out[camelKey] = v;
+    67→  }
+    68→  return out;
+    69→}
+    70→
+    71→// Helper: build WHERE clause from a filter object.
+    72→function buildWhere(filter: Record<string, unknown>): { sql: string; args: unknown[] } {
+    73→  const parts: string[] = [];
+    74→  const args: unknown[] = [];
+    75→  for (const [k, v] of Object.entries(filter)) {
+    76→    if (v === null || v === undefined) continue;
+    77→    // Handle compound keys (e.g., studentId_courseId: { studentId, courseId }).
+    78→    if (k.includes("_") && typeof v === "object" && v !== null && !Array.isArray(v)) {
+    79→      const compound = v as Record<string, unknown>;
+    80→      const isCompoundKey = Object.keys(compound).every(
+    81→        (ck) => typeof compound[ck] === "string" || typeof compound[ck] === "number",
+    82→      );
+    83→      if (isCompoundKey) {
+    84→        for (const [ck, cv] of Object.entries(compound)) {
+    85→          parts.push(`"${ck}" = ?`);
+    86→          args.push(cv);
+    87→        }
+    88→        continue;
+    89→      }
+    90→    }
+    91→    if (typeof v === "object" && v !== null && !Array.isArray(v)) {
+    92→      // Handle Prisma-like operators: { gt: value }, { lt: value }, etc.
+    93→      const ops = v as Record<string, unknown>;
+    94→      for (const [op, opVal] of Object.entries(ops)) {
+    95→        const sqlOp = op === "gt" ? ">" : op === "lt" ? "<" : op === "gte" ? ">=" : op === "lte" ? "<=" : "=";
+    96→        parts.push(`"${k}" ${sqlOp} ?`);
+    97→        args.push(opVal);
+    98→      }
+    99→    } else {
+   100→      parts.push(`"${k}" = ?`);
+   101→      args.push(v);
+   102→    }
+   103→  }
+   104→  const sql = parts.length > 0 ? " WHERE " + parts.join(" AND ") : "";
+   105→  return { sql, args };
+   106→}
+   107→
+   108→// Create a Prisma-like wrapper around the libsql client.
+   109→export const db = {
+   110→  admin: {
+   111→    async findUnique({ where }: { where: Record<string, unknown> }) {
+   112→      const { sql, args } = buildWhere(where);
+   113→      const res = await client.execute({ sql: `SELECT * FROM "Admin"${sql} LIMIT 1`, args });
+   114→      return res.rows[0] ? toCamel(res.rows[0] as Record<string, unknown>) : null;
+   115→    },
+   116→    async findFirst({ where }: { where: Record<string, unknown> }) {
+   117→      const w = where as Record<string, unknown>;
+   118→      if (w.OR) {
+   119→        const orConditions = w.OR as Record<string, unknown>[];
+   120→        const parts: string[] = [];
+   121→        const args: unknown[] = [];
+   122→        for (const cond of orConditions) {
+   123→          const { sql: condSql, args: condArgs } = buildWhere(cond);
+   124→          parts.push(condSql.replace(" WHERE ", "") || "1=1");
+   125→          args.push(...condArgs);
+   126→        }
+   127→        const res = await client.execute({ sql: `SELECT * FROM "Admin" WHERE ${parts.join(" OR ")} LIMIT 1`, args });
+   128→        return res.rows[0] ? toCamel(res.rows[0] as Record<string, unknown>) : null;
+   129→      }
+   130→      const { sql, args } = buildWhere(where);
+   131→      const res = await client.execute({ sql: `SELECT * FROM "Admin"${sql} LIMIT 1`, args });
+   132→      return res.rows[0] ? toCamel(res.rows[0] as Record<string, unknown>) : null;
+   133→    },
+   134→    async count() {
+   135→      const res = await client.execute(`SELECT COUNT(*) as count FROM "Admin"`);
+   136→      return Number((res.rows[0] as Record<string, unknown>).count);
+   137→    },
+   138→    async create({ data }: { data: Record<string, unknown> }) {
+   139→      
+   140→      const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
+   141→      const placeholders = Object.keys(data).map(() => "?").join(", ");
+   142→      const args = Object.values(data);
+   143→      await safeInsert("Admin", data);
+   144→      return data;
+   145→    },
+   146→  },
+   147→  student: {
+   148→    async findUnique({ where }: { where: Record<string, unknown> }) {
+   149→      const { sql, args } = buildWhere(where);
+   150→      const res = await client.execute({ sql: `SELECT * FROM "Student"${sql} LIMIT 1`, args });
+   151→      return res.rows[0] ? toCamel(res.rows[0] as Record<string, unknown>) : null;
+   152→    },
+   153→    async findMany({ where, orderBy, include }: { where?: Record<string, unknown>; orderBy?: Record<string, string>; include?: Record<string, unknown> }) {
+   154→      const { sql, args } = buildWhere(where || {});
+   155→      const orderParts = Array.isArray(orderBy) ? orderBy.map((o: Record<string, string>) => Object.entries(o).map(([k, v]) => `\"${k}\" ${v}`).join(", ")).join(", ") : (orderBy ? Object.entries(orderBy).map(([k, v]) => `\"${k}\" ${v}`).join(", ") : ""); const orderSql = orderParts ? ` ORDER BY ${orderParts}` : "";
+   156→      const res = await client.execute({ sql: `SELECT * FROM "Student"${sql}${orderSql}`, args });
+   157→      let students = res.rows.map(r => toCamel(r as Record<string, unknown>));
+   158→      // If include.grants, fetch grants for each student.
+   159→      if (include?.grants) {
+   160→        for (const s of students) {
+   161→          const grantsRes = await client.execute({ sql: `SELECT * FROM "AccessGrant" WHERE "studentId" = ?`, args: [s.id] });
+   162→          s.grants = grantsRes.rows.map(r => toCamel(r as Record<string, unknown>));
+   163→          for (const g of s.grants) {
+   164→            const courseRes = await client.execute({ sql: `SELECT "title", "color" FROM "Course" WHERE "id" = ?`, args: [g.courseId] });
+   165→            g.course = courseRes.rows[0] ? toCamel(courseRes.rows[0] as Record<string, unknown>) : null;
+   166→          }
+   167→        }
+   168→        students = students.map(s => ({ ...s, _count: { violations: 0, activityLogs: 0, sessions: 0 } }));
+   169→      }
+   170→      return students;
+   171→    },
+   172→    async count() {
+   173→      const res = await client.execute(`SELECT COUNT(*) as count FROM "Student"`);
+   174→      return Number((res.rows[0] as Record<string, unknown>).count);
+   175→    },
+   176→    async create({ data }: { data: Record<string, unknown> }) {
+   177→      
+   178→      const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
+   179→      const placeholders = Object.keys(data).map(() => "?").join(", ");
+   180→      const args = Object.values(data);
+   181→      await safeInsert("Student", data);
+   182→      return data;
+   183→    },
+   184→    async update({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) {
+   185→      const setParts = Object.keys(data).map(k => `"${k}" = ?`).join(", ");
+   186→      const setArgs = Object.values(data);
+   187→      const { sql, args } = buildWhere(where);
+   188→      await client.execute({ sql: `UPDATE "Student" SET ${setParts}${sql}`, args: [...setArgs, ...args] });
+   189→      const res = await client.execute({ sql: `SELECT * FROM "Student"${sql} LIMIT 1`, args });
+   190→      return res.rows[0] ? toCamel(res.rows[0] as Record<string, unknown>) : null;
+   191→    },
+   192→  },
+   193→  course: {
+   194→    async findMany({ orderBy, include }: { orderBy?: Record<string, string>; include?: Record<string, unknown> }) {
+   195→      const orderParts = Array.isArray(orderBy) ? orderBy.map((o: Record<string, string>) => Object.entries(o).map(([k, v]) => `\"${k}\" ${v}`).join(", ")).join(", ") : (orderBy ? Object.entries(orderBy).map(([k, v]) => `\"${k}\" ${v}`).join(", ") : ""); const orderSql = orderParts ? ` ORDER BY ${orderParts}` : "";
+   196→      const res = await client.execute({ sql: `SELECT * FROM "Course"${orderSql}` });
+   197→      let courses = res.rows.map(r => toCamel(r as Record<string, unknown>));
+   198→      if (include?._count) {
+   199→        for (const c of courses) {
+   200→          const vRes = await client.execute({ sql: `SELECT COUNT(*) as count FROM "Video" WHERE "courseId" = ?`, args: [c.id] });
+   201→          const gRes = await client.execute({ sql: `SELECT COUNT(*) as count FROM "AccessGrant" WHERE "courseId" = ?`, args: [c.id] });
+   202→          c._count = { videos: Number(vRes.rows[0]?.count || 0), grants: Number(gRes.rows[0]?.count || 0) };
+   203→        }
+   204→      }
+   205→      return courses;
+   206→    },
+   207→    async findUnique({ where, include }: { where: Record<string, unknown>; include?: Record<string, unknown> }) {
+   208→      const { sql, args } = buildWhere(where);
+   209→      const res = await client.execute({ sql: `SELECT * FROM "Course"${sql} LIMIT 1`, args });
+   210→      const course = res.rows[0] ? toCamel(res.rows[0] as Record<string, unknown>) : null;
+   211→      if (course && include?.videos) {
+   212→        const vRes = await client.execute({ sql: `SELECT * FROM "Video" WHERE "courseId" = ? ORDER BY "sortOrder" ASC, "createdAt" ASC`, args: [course.id] });
+   213→        course.videos = vRes.rows.map(r => toCamel(r as Record<string, unknown>));
+   214→      }
+   215→      return course;
+   216→    },
+   217→    async create({ data }: { data: Record<string, unknown> }) {
+   218→      
+   219→      const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
+   220→      const placeholders = Object.keys(data).map(() => "?").join(", ");
+   221→      const args = Object.values(data);
+   222→      await safeInsert("Course", data);
+   223→      return data;
+   224→    },
+   225→    async update({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) {
+   226→      const setParts = Object.keys(data).map(k => `"${k}" = ?`).join(", ");
+   227→      const setArgs = Object.values(data);
+   228→      const { sql, args } = buildWhere(where);
+   229→      await client.execute({ sql: `UPDATE "Course" SET ${setParts}${sql}`, args: [...setArgs, ...args] });
+   230→      const res = await client.execute({ sql: `SELECT * FROM "Course"${sql} LIMIT 1`, args });
+   231→      return res.rows[0] ? toCamel(res.rows[0] as Record<string, unknown>) : null;
+   232→    },
+   233→    async delete({ where }: { where: Record<string, unknown> }) {
+   234→      const { sql, args } = buildWhere(where);
+   235→      await client.execute({ sql: `DELETE FROM "Course"${sql}`, args });
+   236→    },
+   237→  },
+   238→  video: {
+   239→    async findUnique({ where, include }: { where: Record<string, unknown>; include?: Record<string, unknown> }) {
+   240→      const { sql, args } = buildWhere(where);
+   241→      const res = await client.execute({ sql: `SELECT * FROM "Video"${sql} LIMIT 1`, args });
+   242→      const video = res.rows[0] ? toCamel(res.rows[0] as Record<string, unknown>) : null;
+   243→      if (video && include?.course) {
+   244→        const cRes = await client.execute({ sql: `SELECT * FROM "Course" WHERE "id" = ?`, args: [video.courseId] });
+   245→        video.course = toCamel(cRes.rows[0] as Record<string, unknown>);
+   246→      }
+   247→      if (video && include?.summaries) {
+   248→        const sRes = await client.execute({ sql: `SELECT * FROM "VideoSummary" WHERE "videoId" = ?`, args: [video.id] });
+   249→        video.summaries = sRes.rows.map(r => toCamel(r as Record<string, unknown>));
+   250→      }
+   251→      return video;
+   252→    },
+   253→    async findMany({ where, orderBy, include }: { where?: Record<string, unknown>; orderBy?: Record<string, string>; include?: Record<string, unknown> }) {
+   254→      const { sql, args } = buildWhere(where || {});
+   255→      const orderSql = orderBy ? ` ORDER BY ${Object.entries(orderBy).map(([k, v]) => `"${k}" ${v}`).join(", ")}` : "";
+   256→      const res = await client.execute({ sql: `SELECT * FROM "Video"${sql}${orderSql}`, args });
+   257→      let videos = res.rows.map(r => toCamel(r as Record<string, unknown>));
+   258→      if (include?.course) {
+   259→        for (const v of videos) {
+   260→          const cRes = await client.execute({ sql: `SELECT "title", "color" FROM "Course" WHERE "id" = ?`, args: [v.courseId] });
+   261→          v.course = cRes.rows[0] ? toCamel(cRes.rows[0] as Record<string, unknown>) : null;
+   262→        }
+   263→      }
+   264→      return videos;
+   265→    },
+   266→    async count() {
+   267→      const res = await client.execute(`SELECT COUNT(*) as count FROM "Video"`);
+   268→      return Number((res.rows[0] as Record<string, unknown>).count);
+   269→    },
+   270→    async create({ data }: { data: Record<string, unknown> }) {
+   271→      
+   272→      const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
+   273→      const placeholders = Object.keys(data).map(() => "?").join(", ");
+   274→      const args = Object.values(data);
+   275→      await safeInsert("Video", data);
+   276→      return data;
+   277→    },
+   278→    async update({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) {
+   279→      const setParts = Object.keys(data).map(k => `"${k}" = ?`).join(", ");
+   280→      const setArgs = Object.values(data);
+   281→      const { sql, args } = buildWhere(where);
+   282→      await client.execute({ sql: `UPDATE "Video" SET ${setParts}${sql}`, args: [...setArgs, ...args] });
+   283→      const res = await client.execute({ sql: `SELECT * FROM "Video"${sql} LIMIT 1`, args });
+   284→      return res.rows[0] ? toCamel(res.rows[0] as Record<string, unknown>) : null;
+   285→    },
+   286→    async delete({ where }: { where: Record<string, unknown> }) {
+   287→      const { sql, args } = buildWhere(where);
+   288→      await client.execute({ sql: `DELETE FROM "Video"${sql}`, args });
+   289→    },
+   290→  },
+   291→  accessGrant: {
+   292→    async findFirst({ where }: { where: Record<string, unknown> }) {
+   293→      const { sql, args } = buildWhere(where);
+   294→      const res = await client.execute({ sql: `SELECT * FROM "AccessGrant"${sql} LIMIT 1`, args });
+   295→      return res.rows[0] ? toCamel(res.rows[0] as Record<string, unknown>) : null;
+   296→    },
+   297→    async findMany({ where, include }: { where?: Record<string, unknown>; include?: Record<string, unknown> }) {
+   298→      const { sql, args } = buildWhere(where || {});
+   299→      const res = await client.execute({ sql: `SELECT * FROM "AccessGrant"${sql}`, args });
+   300→      let grants = res.rows.map(r => toCamel(r as Record<string, unknown>));
+   301→      if (include?.course) {
+   302→        for (const g of grants) {
+   303→          const cRes = await client.execute({ sql: `SELECT * FROM "Course" WHERE "id" = ?`, args: [g.courseId] });
+   304→          const courseData = cRes.rows[0] ? toCamel(cRes.rows[0] as Record<string, unknown>) : null;
+   305→          if (courseData) {
+   306→            const vRes = await client.execute({ sql: `SELECT * FROM "Video" WHERE "courseId" = ? ORDER BY "sortOrder" ASC`, args: [g.courseId] });
+   307→            courseData.videos = vRes.rows.map(r => toCamel(r as Record<string, unknown>));
+   308→          }
+   309→          g.course = courseData;
+   310→        }
+   311→      }
+   312→      return grants;
+   313→    },
+   314→    async count() {
+   315→      const res = await client.execute(`SELECT COUNT(*) as count FROM "AccessGrant"`);
+   316→      return Number((res.rows[0] as Record<string, unknown>).count);
+   317→    },
+   318→    async upsert({ where, update, create }: { where: Record<string, unknown>; update: Record<string, unknown>; create: Record<string, unknown> }) {
+   319→      // Handle compound key (studentId_courseId) — split into individual columns.
+   320→      let whereParts: string[] = [];
+   321→      let whereArgs: unknown[] = [];
+   322→      for (const [k, v] of Object.entries(where)) {
+   323→        if (k.includes("_") && typeof v === "object" && v !== null) {
+   324→          const compound = v as Record<string, unknown>;
+   325→          for (const [ck, cv] of Object.entries(compound)) {
+   326→            whereParts.push(`"${ck}" = ?`);
+   327→            whereArgs.push(cv);
+   328→          }
+   329→        } else if (v !== null && v !== undefined) {
+   330→          whereParts.push(`"${k}" = ?`);
+   331→          whereArgs.push(v);
+   332→        }
+   333→      }
+   334→      const whereSql = whereParts.length > 0 ? " WHERE " + whereParts.join(" AND ") : "";
+   335→      const existing = await client.execute({ sql: `SELECT * FROM "AccessGrant"${whereSql} LIMIT 1`, args: whereArgs }).catch(() => ({ rows: [] }));
+   336→      if (existing.rows.length > 0) {
+   337→        const setParts = Object.keys(update).map(k => `"${k}" = ?`).join(", ");
+   338→        const setArgs = Object.values(update);
+   339→        await client.execute({ sql: `UPDATE "AccessGrant" SET ${setParts}${whereSql}`, args: [...setArgs, ...whereArgs] }).catch(() => {});
+   340→      } else {
+   341→        await safeInsert("AccessGrant", create);
+   342→      }
+   343→      return create;
+   344→    },
+   345→  },
+   346→  otpRequest: {
+   347→    async findUnique({ where, include }: { where: Record<string, unknown>; include?: Record<string, unknown> }) {
+   348→      const { sql, args } = buildWhere(where);
+   349→      const res = await client.execute({ sql: `SELECT * FROM "OtpRequest"${sql} LIMIT 1`, args });
+   350→      const otp = res.rows[0] ? toCamel(res.rows[0] as Record<string, unknown>) : null;
+   351→      if (otp && include?.student) {
+   352→        const sRes = await client.execute({ sql: `SELECT * FROM "Student" WHERE "id" = ?`, args: [otp.studentId] });
+   353→        otp.student = toCamel(sRes.rows[0] as Record<string, unknown>);
+   354→      }
+   355→      return otp;
+   356→    },
+   357→    async findMany({ where, orderBy, take, include }: { where?: Record<string, unknown>; orderBy?: Record<string, string>; take?: number; include?: Record<string, unknown> }) {
+   358→      const { sql, args } = buildWhere(where || {});
+   359→      const orderParts = Array.isArray(orderBy) ? orderBy.map((o: Record<string, string>) => Object.entries(o).map(([k, v]) => `\"${k}\" ${v}`).join(", ")).join(", ") : (orderBy ? Object.entries(orderBy).map(([k, v]) => `\"${k}\" ${v}`).join(", ") : ""); const orderSql = orderParts ? ` ORDER BY ${orderParts}` : "";
+   360→      const limitSql = take ? ` LIMIT ${take}` : "";
+   361→      const res = await client.execute({ sql: `SELECT * FROM "OtpRequest"${sql}${orderSql}${limitSql}`, args });
+   362→      let requests = res.rows.map(r => toCamel(r as Record<string, unknown>));
+   363→      if (include?.student) {
+   364→        for (const r of requests) {
+   365→          const sRes = await client.execute({ sql: `SELECT * FROM "Student" WHERE "id" = ?`, args: [r.studentId] });
+   366→          r.student = sRes.rows[0] ? toCamel(sRes.rows[0] as Record<string, unknown>) : null;
+   367→        }
+   368→      }
+   369→      return requests;
+   370→    },
+   371→    async count() {
+   372→      const res = await client.execute(`SELECT COUNT(*) as count FROM "OtpRequest"`);
+   373→      return Number((res.rows[0] as Record<string, unknown>).count);
+   374→    },
+   375→    async create({ data }: { data: Record<string, unknown> }) {
+   376→      
+   377→      const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
+   378→      const placeholders = Object.keys(data).map(() => "?").join(", ");
+   379→      const args = Object.values(data);
+   380→      await safeInsert("OtpRequest", data);
+   381→      return data;
+   382→    },
+   383→    async update({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) {
+   384→      const setParts = Object.keys(data).map(k => `"${k}" = ?`).join(", ");
+   385→      const setArgs = Object.values(data);
+   386→      const { sql, args } = buildWhere(where);
+   387→      await client.execute({ sql: `UPDATE "OtpRequest" SET ${setParts}${sql}`, args: [...setArgs, ...args] });
+   388→      const res = await client.execute({ sql: `SELECT * FROM "OtpRequest"${sql} LIMIT 1`, args });
+   389→      return res.rows[0] ? toCamel(res.rows[0] as Record<string, unknown>) : null;
+   390→    },
+   391→  },
+   392→  notification: {
+   393→    async findMany({ where, orderBy, take }: { where?: Record<string, unknown>; orderBy?: Record<string, string>; take?: number }) {
+   394→      const { sql, args } = buildWhere(where || {});
+   395→      const orderParts = Array.isArray(orderBy) ? orderBy.map((o: Record<string, string>) => Object.entries(o).map(([k, v]) => `\"${k}\" ${v}`).join(", ")).join(", ") : (orderBy ? Object.entries(orderBy).map(([k, v]) => `\"${k}\" ${v}`).join(", ") : ""); const orderSql = orderParts ? ` ORDER BY ${orderParts}` : "";
+   396→      const limitSql = take ? ` LIMIT ${take}` : "";
+   397→      const res = await client.execute({ sql: `SELECT * FROM "Notification"${sql}${orderSql}${limitSql}`, args });
+   398→      const notifications = res.rows.map(r => toCamel(r as Record<string, unknown>));
+   399→      // Fetch student names
+   400→      for (const n of notifications) {
+   401→        if (n.studentId) {
+   402→          const sRes = await client.execute({ sql: `SELECT "name", "email" FROM "Student" WHERE "id" = ?`, args: [n.studentId] });
+   403→          n.student = sRes.rows[0] ? toCamel(sRes.rows[0] as Record<string, unknown>) : null;
+   404→        }
+   405→      }
+   406→      return notifications;
+   407→    },
+   408→    async count() {
+   409→      const res = await client.execute(`SELECT COUNT(*) as count FROM "Notification" WHERE "read" = 0`);
+   410→      return Number((res.rows[0] as Record<string, unknown>).count);
+   411→    },
+   412→    async create({ data }: { data: Record<string, unknown> }) {
+   413→      
+   414→      const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
+   415→      const placeholders = Object.keys(data).map(() => "?").join(", ");
+   416→      const args = Object.values(data);
+   417→      await safeInsert("Notification", data);
+   418→      return data;
+   419→    },
+   420→    async updateMany({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) {
+   421→      const setParts = Object.keys(data).map(k => `"${k}" = ?`).join(", ");
+   422→      const setArgs = Object.values(data);
+   423→      const { sql, args } = buildWhere(where);
+   424→      await client.execute({ sql: `UPDATE "Notification" SET ${setParts}${sql}`, args: [...setArgs, ...args] });
+   425→    },
+   426→  },
+   427→  activityLog: {
+   428→    async findMany({ orderBy, take }: { orderBy?: Record<string, string>; take?: number }) {
+   429→      const orderParts = Array.isArray(orderBy) ? orderBy.map((o: Record<string, string>) => Object.entries(o).map(([k, v]) => `\"${k}\" ${v}`).join(", ")).join(", ") : (orderBy ? Object.entries(orderBy).map(([k, v]) => `\"${k}\" ${v}`).join(", ") : ""); const orderSql = orderParts ? ` ORDER BY ${orderParts}` : "";
+   430→      const limitSql = take ? ` LIMIT ${take}` : "";
+   431→      const res = await client.execute({ sql: `SELECT * FROM "ActivityLog"${orderSql}${limitSql}` });
+   432→      const logs = res.rows.map(r => toCamel(r as Record<string, unknown>));
+   433→      for (const l of logs) {
+   434→        if (l.studentId) {
+   435→          const sRes = await client.execute({ sql: `SELECT "name", "email" FROM "Student" WHERE "id" = ?`, args: [l.studentId] });
+   436→          l.student = sRes.rows[0] ? toCamel(sRes.rows[0] as Record<string, unknown>) : null;
+   437→        }
+   438→      }
+   439→      return logs;
+   440→    },
+   441→    async create({ data }: { data: Record<string, unknown> }) {
+   442→      
+   443→      const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
+   444→      const placeholders = Object.keys(data).map(() => "?").join(", ");
+   445→      const args = Object.values(data);
+   446→      await safeInsert("ActivityLog", data);
+   447→      return data;
+   448→    },
+   449→  },
+   450→  violation: {
+   451→    async findMany({ orderBy, take }: { orderBy?: Record<string, string>; take?: number }) {
+   452→      const orderParts = Array.isArray(orderBy) ? orderBy.map((o: Record<string, string>) => Object.entries(o).map(([k, v]) => `\"${k}\" ${v}`).join(", ")).join(", ") : (orderBy ? Object.entries(orderBy).map(([k, v]) => `\"${k}\" ${v}`).join(", ") : ""); const orderSql = orderParts ? ` ORDER BY ${orderParts}` : "";
+   453→      const limitSql = take ? ` LIMIT ${take}` : "";
+   454→      const res = await client.execute({ sql: `SELECT * FROM "Violation"${orderSql}${limitSql}` });
+   455→      const violations = res.rows.map(r => toCamel(r as Record<string, unknown>));
+   456→      for (const v of violations) {
+   457→        if (v.studentId) {
+   458→          const sRes = await client.execute({ sql: `SELECT "name", "email" FROM "Student" WHERE "id" = ?`, args: [v.studentId] });
+   459→          v.student = sRes.rows[0] ? toCamel(sRes.rows[0] as Record<string, unknown>) : null;
+   460→        }
+   461→      }
+   462→      return violations;
+   463→    },
+   464→    async count() {
+   465→      const res = await client.execute(`SELECT COUNT(*) as count FROM "Violation"`);
+   466→      return Number((res.rows[0] as Record<string, unknown>).count);
+   467→    },
+   468→    async create({ data }: { data: Record<string, unknown> }) {
+   469→      
+   470→      const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
+   471→      const placeholders = Object.keys(data).map(() => "?").join(", ");
+   472→      const args = Object.values(data);
+   473→      await safeInsert("Violation", data);
+   474→      return data;
+   475→    },
+   476→  },
+   477→  videoSummary: {
+   478→    async findUnique({ where }: { where: Record<string, unknown> }) {
+   479→      const { sql, args } = buildWhere(where);
+   480→      const res = await client.execute({ sql: `SELECT * FROM "VideoSummary"${sql} LIMIT 1`, args });
+   481→      return res.rows[0] ? toCamel(res.rows[0] as Record<string, unknown>) : null;
+   482→    },
+   483→    async upsert({ where, update, create }: { where: Record<string, unknown>; update: Record<string, unknown>; create: Record<string, unknown> }) {
+   484→      const { sql, args } = buildWhere(where);
+   485→      const existing = await client.execute({ sql: `SELECT * FROM "VideoSummary"${sql} LIMIT 1`, args });
+   486→      if (existing.rows.length > 0) {
+   487→        const setParts = Object.keys(update).map(k => `"${k}" = ?`).join(", ");
+   488→        const setArgs = Object.values(update);
+   489→        await client.execute({ sql: `UPDATE "VideoSummary" SET ${setParts}${sql}`, args: [...setArgs, ...args] });
+   490→      } else {
+   491→        const keys = Object.keys(create).map(k => `"${k}"`).join(", ");
+   492→        const placeholders = Object.keys(create).map(() => "?").join(", ");
+   493→        const createArgs = Object.values(create);
+   494→        await safeInsert("VideoSummary", create);
+   495→      }
+   496→      return create;
+   497→    },
+   498→  },
+   499→  chatMessage: {
+   500→    async findMany({ where, orderBy, take, select }: { where?: Record<string, unknown>; orderBy?: Record<string, string>; take?: number; select?: Record<string, boolean> }) {
+   501→      const selectSql = select ? Object.keys(select).map(k => `"${k}"`).join(", ") : "*";
+   502→      const { sql, args } = buildWhere(where || {});
+   503→      const orderSql = orderBy ? ` ORDER BY ${Object.entries(orderBy).map(([k, v]) => `"${k}" ${v}`).join(", ")}` : "";
+   504→      const limitSql = take ? ` LIMIT ${take}` : "";
+   505→      const res = await client.execute({ sql: `SELECT ${selectSql} FROM "ChatMessage"${sql}${orderSql}${limitSql}`, args });
+   506→      return res.rows.map(r => toCamel(r as Record<string, unknown>));
+   507→    },
+   508→    async create({ data }: { data: Record<string, unknown> }) {
+   509→      
+   510→      const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
+   511→      const placeholders = Object.keys(data).map(() => "?").join(", ");
+   512→      const args = Object.values(data);
+   513→      const result = await safeInsert("ChatMessage", data);
+   514→      return result || data;
+   515→    },
+   516→    async deleteMany({ where }: { where: Record<string, unknown> }) {
+   517→      const { sql, args } = buildWhere(where);
+   518→      await client.execute({ sql: `DELETE FROM "ChatMessage"${sql}`, args });
+   519→    },
+   520→  },
+   521→  watchProgress: {
+   522→    async findMany({ where }: { where: Record<string, unknown> }) {
+   523→      const { sql, args } = buildWhere(where);
+   524→      const res = await client.execute({ sql: `SELECT * FROM "WatchProgress"${sql}`, args });
+   525→      return res.rows.map(r => toCamel(r as Record<string, unknown>));
+   526→    },
+   527→    async upsert({ where, update, create }: { where: Record<string, unknown>; update: Record<string, unknown>; create: Record<string, unknown> }) {
+   528→      const { sql, args } = buildWhere(where);
+   529→      const existing = await client.execute({ sql: `SELECT * FROM "WatchProgress"${sql} LIMIT 1`, args });
+   530→      if (existing.rows.length > 0) {
+   531→        const setParts = Object.keys(update).map(k => `"${k}" = ?`).join(", ");
+   532→        const setArgs = Object.values(update);
+   533→        await client.execute({ sql: `UPDATE "WatchProgress" SET ${setParts}${sql}`, args: [...setArgs, ...args] });
+   534→      } else {
+   535→        const keys = Object.keys(create).map(k => `"${k}"`).join(", ");
+   536→        const placeholders = Object.keys(create).map(() => "?").join(", ");
+   537→        const createArgs = Object.values(create);
+   538→        await safeInsert("WatchProgress", create);
+   539→      }
+   540→      return create;
+   541→    },
+   542→  },
+   543→  videoNote: {
+   544→    async findMany({ where }: { where: Record<string, unknown> }) {
+   545→      const { sql, args } = buildWhere(where);
+   546→      const res = await client.execute({ sql: `SELECT * FROM "VideoNote"${sql}`, args });
+   547→      return res.rows.map(r => toCamel(r as Record<string, unknown>));
+   548→    },
+   549→    async create({ data }: { data: Record<string, unknown> }) {
+   550→      
+   551→      const keys = Object.keys(data).map(k => `"${k}"`).join(", ");
+   552→      const placeholders = Object.keys(data).map(() => "?").join(", ");
+   553→      const args = Object.values(data);
+   554→      const result = await safeInsert("VideoNote", data);
+   555→      return result || data;
+   556→    },
+   557→    async deleteMany({ where }: { where: Record<string, unknown> }) {
+   558→      const { sql, args } = buildWhere(where);
+   559→      await client.execute({ sql: `DELETE FROM "VideoNote"${sql}`, args });
+   560→    },
+   561→  },
+   562→  // Raw SQL execution for schema creation.
+   563→  $executeRawUnsafe: async (sql: string) => {
+   564→    await client.execute(sql);
+   565→  },
+   566→  $disconnect: async () => {
+   567→    client.close();
+   568→  },
+   569→};
+   570→
+   571→export type DB = typeof db;
+   572→

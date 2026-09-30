@@ -58,6 +58,7 @@ import {
   Link as LinkIcon,
   ShieldCheck,
   Settings,
+  FileText,
 } from "lucide-react";
 
 type Tab =

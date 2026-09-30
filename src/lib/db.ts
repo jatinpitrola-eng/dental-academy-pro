@@ -559,9 +559,13 @@ export const db = {
       await client.execute({ sql: `DELETE FROM "VideoNote"${sql}`, args });
     },
   },
-  // Raw SQL execution for schema creation.
-  $executeRawUnsafe: async (sql: string) => {
-    await client.execute(sql);
+  // Raw SQL execution for schema creation + content queries.
+  $executeRawUnsafe: async (sql: string, ...args: unknown[]) => {
+    await client.execute({ sql, args: args as never[] });
+  },
+  $queryRawUnsafe: async <T = unknown>(sql: string, ...args: unknown[]): Promise<T[]> => {
+    const res = await client.execute({ sql, args: args as never[] });
+    return (res.rows || []) as unknown as T[];
   },
   $disconnect: async () => {
     client.close();
