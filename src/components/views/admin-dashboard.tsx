@@ -57,6 +57,7 @@ import {
   Upload,
   Link as LinkIcon,
   ShieldCheck,
+  Settings,
 } from "lucide-react";
 
 type Tab =
@@ -65,7 +66,8 @@ type Tab =
   | "students"
   | "courses"
   | "notifications"
-  | "logs";
+  | "logs"
+  | "settings";
 
 export function AdminDashboard() {
   const admin = useApp((s) => s.admin)!;
@@ -169,6 +171,7 @@ export function AdminDashboard() {
           {tab === "courses" && <CoursesTab />}
           {tab === "notifications" && <NotificationsTab />}
           {tab === "logs" && <LogsTab />}
+          {tab === "settings" && <SettingsTab />}
         </div>
       </div>
     </div>
@@ -182,6 +185,7 @@ const NAV: { id: Tab; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "courses", label: "Courses", icon: GraduationCap },
   { id: "notifications", label: "Alerts", icon: Bell },
   { id: "logs", label: "Activity", icon: ScrollText },
+  { id: "settings", label: "Settings", icon: Settings },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -1961,4 +1965,158 @@ function timeAgo(iso: string): string {
   if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
   if (diff < 604800000) return `${Math.floor(diff / 86400000)}d ago`;
   return new Date(iso).toLocaleDateString();
+}
+
+/* ---------------- Settings ---------------- */
+
+function SettingsTab() {
+  const [settings, setSettings] = useState<{ email: string; name: string; secretKey: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  // Password change fields
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api<{ admin: { email: string; name: string; secretKey: string } }>(
+          "/api/admin/settings",
+        );
+        setSettings(res.admin);
+      } catch {
+        /* ignore */
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    setSuccess(false);
+    try {
+      const body: Record<string, unknown> = {};
+      if (settings?.email) body.email = settings.email;
+      if (settings?.name) body.name = settings.name;
+      if (settings?.secretKey) body.secretKey = settings.secretKey;
+      if (newPassword && currentPassword) {
+        body.password = newPassword;
+        body.currentPassword = currentPassword;
+      }
+      await api("/api/admin/settings", {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+      setSuccess(true);
+      setCurrentPassword("");
+      setNewPassword("");
+      setTimeout(() => setSuccess(false), 3000);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading)
+    return (
+      <div className="grid place-items-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="font-semibold">Admin Settings</h2>
+        <p className="text-sm text-muted-foreground">
+          Change your admin email, password, and access code.
+        </p>
+      </div>
+
+      {/* Profile section */}
+      <Card className="border-border/60">
+        <CardContent className="space-y-4 p-5">
+          <h3 className="text-sm font-medium">Admin Profile</h3>
+          <div className="space-y-2">
+            <Label>Admin Name</Label>
+            <Input
+              value={settings?.name || ""}
+              onChange={(e) => setSettings(s => s ? { ...s, name: e.target.value } : s)}
+              placeholder="Academy Owner"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Admin Email</Label>
+            <Input
+              type="email"
+              value={settings?.email || ""}
+              onChange={(e) => setSettings(s => s ? { ...s, email: e.target.value } : s)}
+              placeholder="owner@dentalacademy.com"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Access Code (Portal Secret)</Label>
+            <Input
+              value={settings?.secretKey || ""}
+              onChange={(e) => setSettings(s => s ? { ...s, secretKey: e.target.value } : s)}
+              placeholder="dental-master-2024"
+            />
+            <p className="text-xs text-muted-foreground">
+              This is the code needed to access the admin portal (5-click logo → step 2).
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Password change */}
+      <Card className="border-border/60">
+        <CardContent className="space-y-4 p-5">
+          <h3 className="text-sm font-medium">Change Password</h3>
+          <div className="space-y-2">
+            <Label>Current Password</Label>
+            <Input
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              placeholder="Enter current password"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>New Password</Label>
+            <Input
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="Enter new password"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Leave blank if you don't want to change the password.
+          </p>
+        </CardContent>
+      </Card>
+
+      {error && (
+        <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      {success && (
+        <p className="rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600">
+          ✓ Settings saved successfully!
+        </p>
+      )}
+
+      <Button onClick={save} disabled={saving} className="gap-2">
+        {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+        Save Changes
+      </Button>
+    </div>
+  );
 }

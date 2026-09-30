@@ -112,7 +112,7 @@ export function LandingView() {
             </div>
           </div>
 
-          {/* visual card */}
+          {/* visual card — YouTube channel embed */}
           <div className="relative">
             <div className="absolute -inset-4 -z-10 rounded-[2rem] bg-gradient-to-tr from-emerald-500/20 via-teal-500/10 to-transparent blur-2xl" />
             <div className="glass overflow-hidden rounded-3xl border border-border/60 shadow-2xl shadow-emerald-900/5">
@@ -123,47 +123,27 @@ export function LandingView() {
                   <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
                 </div>
                 <span className="ml-2 text-xs text-muted-foreground">
-                  secure-player · live
+                  We The Dentist · YouTube
                 </span>
               </div>
-              <div className="relative aspect-video bg-gradient-to-br from-emerald-950 to-slate-900">
-                <div className="absolute inset-0 grid place-items-center">
-                  <div className="grid h-16 w-16 place-items-center rounded-full bg-white/10 ring-1 ring-white/20 backdrop-blur">
-                    <PlayCircle className="h-9 w-9 text-white" />
-                  </div>
-                </div>
-                {/* floating watermark grid */}
-                {Array.from({ length: 12 }).map((_, i) => (
-                  <span
-                    key={i}
-                    className="wm-float absolute -rotate-12 select-none text-[10px] font-medium text-white/30"
-                    style={{
-                      top: `${(i % 4) * 25 + 8}%`,
-                      left: `${Math.floor(i / 4) * 33 + 5}%`,
-                    }}
-                  >
-                    Dr. Mehta · 9876 · 2:14PM
-                  </span>
-                ))}
-                {/* fake controls */}
-                <div className="absolute inset-x-0 bottom-0 flex items-center gap-3 bg-gradient-to-t from-black/70 to-transparent px-4 py-3">
-                  <PlayCircle className="h-6 w-6 text-white" />
-                  <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/20">
-                    <div className="h-full w-1/3 rounded-full bg-emerald-400" />
-                  </div>
-                  <span className="text-xs font-medium tabular-nums text-white/80">
-                    +10s
-                  </span>
-                </div>
+              {/* YouTube channel embed — no branding visible to user */}
+              <div className="relative aspect-video overflow-hidden bg-black">
+                <iframe
+                  src="https://www.youtube.com/embed?listType=user_uploads&list=UCEh0pmdPkVXylmDsCo6EXyA&autoplay=0&controls=1&modestbranding=1&rel=0&showinfo=0"
+                  className="absolute left-1/2 top-1/2 h-[130%] w-[130%] -translate-x-1/2 -translate-y-1/2"
+                  style={{ pointerEvents: "none" }}
+                  allow="autoplay; encrypted-media"
+                  title="We The Dentist"
+                />
               </div>
               <div className="space-y-2 px-4 py-4">
                 <div className="text-sm font-semibold">
-                  Rotary Instrumentation Technique
+                  We The Dentist Channel
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Modern Endodontics</span>
+                  <span>Latest dental tutorials</span>
                   <span className="inline-flex items-center gap-1 text-emerald-600">
-                    <ShieldCheck className="h-3.5 w-3.5" /> Protected
+                    <ShieldCheck className="h-3.5 w-3.5" /> YouTube
                   </span>
                 </div>
               </div>
