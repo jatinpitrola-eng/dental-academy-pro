@@ -67,7 +67,8 @@ type Tab =
   | "courses"
   | "notifications"
   | "logs"
-  | "settings";
+  | "settings"
+  | "content";
 
 export function AdminDashboard() {
   const admin = useApp((s) => s.admin)!;
@@ -172,6 +173,7 @@ export function AdminDashboard() {
           {tab === "notifications" && <NotificationsTab />}
           {tab === "logs" && <LogsTab />}
           {tab === "settings" && <SettingsTab />}
+          {tab === "content" && <ContentTab />}
         </div>
       </div>
     </div>
@@ -186,6 +188,7 @@ const NAV: { id: Tab; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "notifications", label: "Alerts", icon: Bell },
   { id: "logs", label: "Activity", icon: ScrollText },
   { id: "settings", label: "Settings", icon: Settings },
+  { id: "content", label: "Content", icon: FileText },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -2116,6 +2119,137 @@ function SettingsTab() {
       <Button onClick={save} disabled={saving} className="gap-2">
         {saving && <Loader2 className="h-4 w-4 animate-spin" />}
         Save Changes
+      </Button>
+    </div>
+  );
+}
+
+/* ---------------- Content Editor ---------------- */
+
+function ContentTab() {
+  const [content, setContent] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [success, setSuccess] = useState(false);
+
+  const fields = [
+    { key: "heroBadge", label: "Hero Badge", group: "Hero Section" },
+    { key: "heroTitle", label: "Hero Title", group: "Hero Section" },
+    { key: "heroSubtitle", label: "Hero Subtitle", group: "Hero Section", textarea: true },
+    { key: "heroBtn1", label: "Hero Button 1", group: "Hero Section" },
+    { key: "heroBtn2", label: "Hero Button 2", group: "Hero Section" },
+    { key: "landingVideoUrl", label: "Landing Video URL (YouTube channel link)", group: "Video" },
+    { key: "landingVideoTitle", label: "Video Title", group: "Video" },
+    { key: "landingVideoSub", label: "Video Subtitle", group: "Video" },
+    { key: "feature1Title", label: "Feature 1 Title", group: "Features" },
+    { key: "feature1Desc", label: "Feature 1 Description", group: "Features", textarea: true },
+    { key: "feature2Title", label: "Feature 2 Title", group: "Features" },
+    { key: "feature2Desc", label: "Feature 2 Description", group: "Features", textarea: true },
+    { key: "feature3Title", label: "Feature 3 Title", group: "Features" },
+    { key: "feature3Desc", label: "Feature 3 Description", group: "Features", textarea: true },
+    { key: "feature4Title", label: "Feature 4 Title", group: "Features" },
+    { key: "feature4Desc", label: "Feature 4 Description", group: "Features", textarea: true },
+    { key: "feature5Title", label: "Feature 5 Title", group: "Features" },
+    { key: "feature5Desc", label: "Feature 5 Description", group: "Features", textarea: true },
+    { key: "feature6Title", label: "Feature 6 Title", group: "Features" },
+    { key: "feature6Desc", label: "Feature 6 Description", group: "Features", textarea: true },
+    { key: "downloadTitle", label: "Download Section Title", group: "Download" },
+    { key: "downloadDesc", label: "Download Description", group: "Download", textarea: true },
+    { key: "downloadBtn", label: "Download Button Text", group: "Download" },
+    { key: "ctaTitle", label: "CTA Title", group: "Call to Action" },
+    { key: "ctaDesc", label: "CTA Description", group: "Call to Action", textarea: true },
+    { key: "ctaBtn1", label: "CTA Button 1", group: "Call to Action" },
+    { key: "ctaBtn2", label: "CTA Button 2", group: "Call to Action" },
+    { key: "step1Title", label: "Step 1 Title", group: "How It Works" },
+    { key: "step1Desc", label: "Step 1 Description", group: "How It Works" },
+    { key: "step2Title", label: "Step 2 Title", group: "How It Works" },
+    { key: "step2Desc", label: "Step 2 Description", group: "How It Works" },
+    { key: "step3Title", label: "Step 3 Title", group: "How It Works" },
+    { key: "step3Desc", label: "Step 3 Description", group: "How It Works" },
+    { key: "step4Title", label: "Step 4 Title", group: "How It Works" },
+    { key: "step4Desc", label: "Step 4 Description", group: "How It Works" },
+  ];
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api<{ content: Record<string, string> }>("/api/admin/content");
+        setContent(res.content || {});
+      } catch { /* ignore */ }
+      setLoading(false);
+    })();
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api("/api/admin/content", { method: "PUT", body: JSON.stringify(content) });
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
+    } catch { /* ignore */ }
+    setSaving(false);
+  };
+
+  if (loading)
+    return (
+      <div className="grid place-items-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+
+  // Group fields.
+  const groups: Record<string, typeof fields> = {};
+  fields.forEach(f => {
+    if (!groups[f.group]) groups[f.group] = [];
+    groups[f.group].push(f);
+  });
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="font-semibold">Content Editor</h2>
+        <p className="text-sm text-muted-foreground">
+          Edit all text on the landing page. Changes are saved to the database
+          and visible to students immediately.
+        </p>
+      </div>
+
+      {Object.entries(groups).map(([groupName, groupFields]) => (
+        <Card key={groupName} className="border-border/60">
+          <CardContent className="space-y-4 p-5">
+            <h3 className="text-sm font-medium">{groupName}</h3>
+            {groupFields.map(f => (
+              <div key={f.key} className="space-y-1.5">
+                <Label className="text-xs">{f.label}</Label>
+                {f.textarea ? (
+                  <Textarea
+                    value={content[f.key] || ""}
+                    onChange={(e) => setContent(c => ({ ...c, [f.key]: e.target.value }))}
+                    rows={2}
+                    className="text-sm"
+                  />
+                ) : (
+                  <Input
+                    value={content[f.key] || ""}
+                    onChange={(e) => setContent(c => ({ ...c, [f.key]: e.target.value }))}
+                    className="text-sm"
+                  />
+                )}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ))}
+
+      {success && (
+        <p className="rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600">
+          ✓ Content saved! Changes are live.
+        </p>
+      )}
+
+      <Button onClick={save} disabled={saving} className="gap-2">
+        {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+        Save All Content
       </Button>
     </div>
   );

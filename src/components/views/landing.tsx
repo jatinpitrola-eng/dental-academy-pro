@@ -22,6 +22,18 @@ import {
 export function LandingView() {
   const setView = useApp((s) => s.setView);
   const [deferredPrompt, setDeferredPrompt] = useState<{ prompt: () => Promise<void> } | null>(null);
+  const [content, setContent] = useState<Record<string, string>>({});
+
+  // Fetch editable content from DB.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/content");
+        const data = await res.json();
+        if (data.content) setContent(data.content);
+      } catch { /* use defaults */ }
+    })();
+  }, []);
 
   // Capture the native install prompt as soon as it's available.
   useEffect(() => {
@@ -39,6 +51,13 @@ export function LandingView() {
       setDeferredPrompt(null);
     }
   };
+
+  // Helper: get content value or default.
+  const c = (key: string, fallback: string) => content[key] || fallback;
+
+  // Extract YouTube channel ID from URL.
+  const ytUrl = c("landingVideoUrl", "https://youtube.com/@wethedentist");
+  const ytChannelId = ytUrl.match(/UC[a-zA-Z0-9_-]{22}/)?.[0] || "UCEh0pmdPkVXylmDsCo6EXyA";
 
   return (
     <div className="relative overflow-hidden">
@@ -69,10 +88,10 @@ export function LandingView() {
           <div className="space-y-6">
             <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
               <Sparkles className="h-3.5 w-3.5" />
-              Secure · Device-bound · Time-limited
+              c("heroBadge", "Secure · Device-bound · Time-limited")
             </div>
             <h1 className="text-4xl font-bold leading-[1.1] tracking-tight sm:text-5xl lg:text-6xl">
-              Master dentistry with{" "}
+              c("heroTitle", "Master dentistry with protected video courses.")
               <span className="bg-gradient-to-r from-emerald-600 to-teal-500 bg-clip-text text-transparent">
                 protected
               </span>{" "}
@@ -123,25 +142,25 @@ export function LandingView() {
                   <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
                 </div>
                 <span className="ml-2 text-xs text-muted-foreground">
-                  We The Dentist · YouTube
+                  {c("landingVideoTitle", "We The Dentist")} · YouTube
                 </span>
               </div>
               {/* YouTube channel embed — no branding visible to user */}
               <div className="relative aspect-video overflow-hidden bg-black">
                 <iframe
-                  src="https://www.youtube.com/embed?listType=user_uploads&list=UCEh0pmdPkVXylmDsCo6EXyA&autoplay=0&controls=1&modestbranding=1&rel=0&showinfo=0"
+                  src={`https://www.youtube.com/embed?listType=user_uploads&list=${ytChannelId}&autoplay=0&controls=1&modestbranding=1&rel=0&showinfo=0`}
                   className="absolute left-1/2 top-1/2 h-[130%] w-[130%] -translate-x-1/2 -translate-y-1/2"
                   style={{ pointerEvents: "none" }}
                   allow="autoplay; encrypted-media"
-                  title="We The Dentist"
+                  title={c("landingVideoTitle", "We The Dentist")}
                 />
               </div>
               <div className="space-y-2 px-4 py-4">
                 <div className="text-sm font-semibold">
-                  We The Dentist Channel
+                  {c("landingVideoTitle", "We The Dentist Channel")}
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Latest dental tutorials</span>
+                  <span>c("landingVideoSub", "Latest dental tutorials")</span>
                   <span className="inline-flex items-center gap-1 text-emerald-600">
                     <ShieldCheck className="h-3.5 w-3.5" /> YouTube
                   </span>
@@ -174,7 +193,7 @@ export function LandingView() {
               <Download className="h-8 w-8" />
             </div>
             <div className="flex-1 text-center sm:text-left">
-              <h3 className="text-xl font-bold">Download the App</h3>
+              <h3 className="text-xl font-bold">{c("downloadTitle", "Download the App")}</h3>
               <p className="mt-1 text-sm text-muted-foreground">
                 Install Dental Academy Pro on your phone or computer for quick
                 access, full screen experience, and offline support.
@@ -185,7 +204,7 @@ export function LandingView() {
               className="flex shrink-0 items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-500/20 transition-all hover:scale-105 active:scale-95"
             >
               <Download className="h-4 w-4" />
-              Download Now
+              {c("downloadBtn", "Download Now")}
             </button>
           </div>
         </div>
@@ -219,7 +238,7 @@ export function LandingView() {
         {/* cta */}
         <div className="mt-20 overflow-hidden rounded-3xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 via-teal-500/5 to-transparent p-8 text-center sm:p-12">
           <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">
-            Ready to start learning?
+            c("ctaTitle", "Ready to start learning?")
           </h2>
           <p className="mx-auto mt-2 max-w-lg text-muted-foreground">
             Register your account. Once the academy owner grants you access,
@@ -247,51 +266,51 @@ export function LandingView() {
 const FEATURES = [
   {
     icon: Video,
-    title: "Protected video player",
-    desc: "Play/pause and 10-second skip only. No seeking, no downloads, no screen capture.",
+    title: c("feature1Title", "Protected video player"),
+    desc: c("feature1Desc", "Play/pause and 10-second skip only. No seeking, no downloads, no screen capture."),
   },
   {
     icon: Fingerprint,
-    title: "Single device login",
-    desc: "Your account is bound to one device. Logging in elsewhere is blocked automatically.",
+    title: c("feature2Title", "Single device login"),
+    desc: c("feature2Desc", "Your account is bound to one device. Logging in elsewhere is blocked automatically."),
   },
   {
     icon: Clock,
-    title: "Time-limited access",
-    desc: "Each course unlocks for a set number of days, then auto-locks — fully controlled by the owner.",
+    title: c("feature3Title", "Time-limited access"),
+    desc: c("feature3Desc", "Each course unlocks for a set number of days, then auto-locks — fully controlled by the owner."),
   },
   {
     icon: Lock,
-    title: "Screenshot detection",
-    desc: "Capture attempts are detected and the account is disabled instantly until the owner reactivates it.",
+    title: c("feature4Title", "Screenshot detection"),
+    desc: c("feature4Desc", "Capture attempts are detected and the account is disabled instantly until the owner reactivates it."),
   },
   {
     icon: Bell,
-    title: "Live admin alerts",
-    desc: "The academy owner is notified with sound the moment you register or request access.",
+    title: c("feature5Title", "Live admin alerts"),
+    desc: c("feature5Desc", "The academy owner is notified with sound the moment you register or request access."),
   },
   {
     icon: ShieldCheck,
-    title: "OTP-gated login",
-    desc: "Every login needs a one-time code that only the owner can generate and share with you.",
+    title: c("feature6Title", "OTP-gated login"),
+    desc: c("feature6Desc", "Every login needs a one-time code that only the owner can generate and share with you."),
   },
 ];
 
 const STEPS = [
   {
-    title: "Pay offline",
-    desc: "Complete payment directly with your academy — outside the app.",
+    title: c("step1Title", "Pay offline"),
+    desc: c("step1Desc", "Complete payment directly with your academy — outside the app."),
   },
   {
-    title: "Register",
-    desc: "Create your student account with email and password.",
+    title: c("step2Title", "Register"),
+    desc: c("step2Desc", "Create your student account with email and password."),
   },
   {
-    title: "Owner approves",
-    desc: "The owner receives a live alert and shares a 6-digit access code with you.",
+    title: c("step3Title", "Owner approves"),
+    desc: c("step3Desc", "The owner receives a live alert and shares a 6-digit access code with you."),
   },
   {
-    title: "Start watching",
-    desc: "Enter the code, get device-bound access, and learn securely.",
+    title: c("step4Title", "Start watching"),
+    desc: c("step4Desc", "Enter the code, get device-bound access, and learn securely."),
   },
 ];
